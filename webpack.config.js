@@ -1,6 +1,7 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
+const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 
 module.exports = {
   entry: {
@@ -9,7 +10,7 @@ module.exports = {
     background: './extension/src/background/background.js',
   },
   output: {
-    path: path.resolve(__dirname, 'dist'),
+    path: path.resolve(__dirname, 'extension'),
     filename: '[name].bundle.js',
     clean: true,
   },
@@ -32,6 +33,14 @@ module.exports = {
     ],
   },
   plugins: [
+    new CleanWebpackPlugin({
+      cleanStaleWebpackAssets: false, // Don't remove index.html
+      cleanOnceBeforeBuildPatterns: [
+        '**/*',
+        '!manifest.json', // Keep the manifest file
+        '!assets/**/*',  // Keep the assets directory
+      ],
+    }),
     new HtmlWebpackPlugin({
       template: './extension/src/popup/popup.html',
       filename: 'popup.html',
@@ -39,8 +48,11 @@ module.exports = {
     }),
     new CopyPlugin({
       patterns: [
-        { from: 'extension/manifest.json', to: 'manifest.json' },
-        { from: 'extension/src/assets', to: 'assets' },
+        { 
+          from: 'extension/src/assets',
+          to: 'assets',
+          noErrorOnMissing: true,
+        },
       ],
     }),
   ],
