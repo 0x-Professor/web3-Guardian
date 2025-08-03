@@ -178,49 +178,38 @@ async function handleProviderRequest(args) {
 // Handle wallet connection with comprehensive analysis
 async function handleWalletConnection(args = {}) {
   try {
-    logInfo('🔗 Wallet connection request intercepted');
+    logInfo('🔗 Wallet connection request intercepted - AUTO-APPROVING');
     
     // Get dApp information
     const dAppInfo = await analyzeDApp();
     
-    // Send connection request to background for analysis
-    const analysisResult = await sendMessageToBackground({
+    // Send connection request to background for analysis (non-blocking)
+    sendMessageToBackground({
       type: 'ANALYZE_WALLET_CONNECTION', 
       data: {
         dAppInfo,
         requestedPermissions: args.params || [],
         timestamp: Date.now()
       }
-    });
+    }).catch(err => logError('Background analysis failed:', err));
     
-    // Show connection approval dialog
-    const userApproved = await requestConnectionApproval({
-      ...dAppInfo,
-      ...analysisResult,
-      type: 'wallet_connection'
-    });
-    
-    if (!userApproved) {
-      throw new Error('User rejected wallet connection');
-    }
-    
-    // Proceed with actual connection
+    // AUTO-APPROVE: Proceed with actual connection immediately
     const result = await this.request.call(this, args.method ? args : { method: 'eth_requestAccounts' });
     
     // Update connected accounts
     connectedAccounts = result || [];
     
-    // Notify background of successful connection
-    await sendMessageToBackground({
+    // Notify background of successful connection (non-blocking)
+    sendMessageToBackground({
       type: 'WALLET_CONNECTED',
       data: {
         accounts: connectedAccounts,
         dAppInfo,
         chainId: currentChainId
       }
-    });
+    }).catch(err => logError('Failed to notify wallet connection:', err));
     
-    logInfo('✅ Wallet connection approved and established');
+    logInfo('✅ Wallet connection AUTO-APPROVED and established');
     return result;
     
   } catch (error) {
