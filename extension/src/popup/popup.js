@@ -1,265 +1,424 @@
-// Wait for the DOM to be fully loaded
-document.addEventListener('DOMContentLoaded', function() {
-  // Get DOM elements
-  const loadingElement = document.getElementById('loading');
-  const statusElement = document.getElementById('status');
-  const transactionDetails = document.getElementById('transaction-details');
-  const detailsElement = document.getElementById('details');
-  const approveBtn = document.getElementById('approve-btn');
-  const rejectBtn = document.getElementById('reject-btn');
-  
-  // Set initial UI state
-  showLoading('Connecting to Web3 Guardian...');
-  
-  // Initialize the popup
-  initPopup().catch(error => {
-    console.error('Popup initialization failed:', error);
-    showMessage('Failed to initialize. Please try again.', 'error');
-  });
+// Modern popup implementation with improved UX and error handling
+let currentTransaction = null;
+let isInitialized = false;
 
-  // Function to handle the response from the content script
-  async function handleContentScriptResponse(response) {
-    if (response && response.success === false) {
-      throw new Error(response.error || 'Failed to analyze transaction');
-    }
+// UI State Management
+const UI = {
+  elements: {},
+  state: {
+    loading: false,
+    error: null,
+    transaction: null
+  },
+  
+  init() {
+    this.elements = {
+      loadingElement: document.getElementById('loading'),
+      statusElement: document.getElementById('status'),
+      errorElement: document.getElementById('error-message'),
+      transactionDetails: document.getElementById('transaction-details'),
+      detailsElement: document.getElementById('details'),
+      approveBtn: document.getElementById('approve-btn'),
+      rejectBtn: document.getElementById('reject-btn'),
+      settingsBtn: document.getElementById('settings-btn'),
+      refreshBtn: document.getElementById('refresh-btn')
+    };
     
-    if (response) {
-      updateUI(response);
+    this.bindEvents();
+    this.render();
+  },
+  
+  bindEvents() {
+    this.elements.approveBtn?.addEventListener('click', () => handleTransactionDecision(true));
+    this.elements.rejectBtn?.addEventListener('click', () => handleTransactionDecision(false));
+    this.elements.refreshBtn?.addEventListener('click', () => refreshTransactionStatus());
+    this.elements.settingsBtn?.addEventListener('click', () => openSettings());
+  },
+  
+  setState(newState) {
+    Object.assign(this.state, newState);
+    this.render();
+  },
+  
+  render() {
+    const { loading, error, transaction } = this.state;
+    
+    // Show/hide loading
+    this.toggleElement(this.elements.loadingElement, loading);
+    
+    // Show/hide error
+    if (error) {
+      this.showError(error);
     } else {
-      showMessage('No active transaction detected', 'info');
+      this.hideError();
     }
-  }
-
-  // Initialize the popup
-  async function initPopup() {
-    try {
-      // Get the active tab
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      if (!tab) {
-        showError('No active tab found');
-        return;
-      }
-      
-      console.log('Initializing popup for tab:', tab.url);
-      
-      // Show loading state
-      showLoading('Analyzing transaction...');
-      
-      // Try to get transaction status with retry logic
-      let response;
-      let retryCount = 0;
-      const MAX_RETRIES = 3;
-      const RETRY_DELAY = 1000; // ms
-      
-      while (retryCount < MAX_RETRIES) {
-        try {
-          console.log(`Attempt ${retryCount + 1}/${MAX_RETRIES} to connect to content script...`);
-          
-          // First try to get the transaction status
-          response = await new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage(
-              { type: 'GET_TRANSACTION_STATUS' },
-              (response) => {
-                if (chrome.runtime.lastError) {
-                  reject(chrome.runtime.lastError);
-                } else if (!response) {
-                  reject(new Error('No response from background script'));
-                } else if (response.error) {
-                  reject(new Error(response.error));
-                } else {
-                  resolve(response);
-                }
-              }
-            );
-            
-            // Set a timeout for the response
-            setTimeout(() => {
-              reject(new Error('Request timed out'));
-            }, 5000);
-          });
-          
-          console.log('Received response:', response);
-          return handleContentScriptResponse(response);
-          
-        } catch (error) {
-          console.error(`Attempt ${retryCount + 1} failed:`, error);
-          retryCount++;
-          
-          if (retryCount >= MAX_RETRIES) {
-            // If we've exhausted all retries, try to inject the content script manually
-            if (error.message.includes('inject') || error.message.includes('content script')) {
-              console.log('Attempting to inject content script manually...');
-              try {
-                await chrome.scripting.executeScript({
-                  target: { tabId: tab.id },
-                  files: ['content.bundle.js']
-                });
-                console.log('Content script injected successfully');
-                // Give it a moment to initialize
-                await new Promise(resolve => setTimeout(resolve, 500));
-                // Try one more time
-                retryCount--;
-                continue;
-              } catch (injectError) {
-                console.error('Failed to inject content script:', injectError);
-              }
-            }
-            
-            // If we've exhausted all options, show the error
-            throw new Error(`Could not connect to the content script: ${error.message}`);
-          }
-          
-          // Wait before retrying
-          const delay = RETRY_DELAY * Math.pow(2, retryCount - 1); // Exponential backoff
-          console.log(`Retrying in ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    } catch (error) {
-      console.error('Error in popup initialization:', error);
-      showMessage(error.message || 'Error initializing popup', 'error');
+    
+    // Show transaction details
+    if (transaction && !loading && !error) {
+      this.showTransaction(transaction);
+    } else {
+      this.hideTransaction();
     }
-  }
-
-  // Update the UI based on transaction status
-  function updateUI(data) {
-    loadingElement.classList.add('hidden');
-    statusElement.classList.remove('hidden');
-    transactionDetails.classList.remove('hidden');
     
-    // Enable buttons
-    approveBtn.disabled = false;
-    rejectBtn.disabled = false;
+    // Update button states
+    this.updateButtons(loading, !!transaction);
+  },
+  
+  toggleElement(element, show) {
+    if (!element) return;
+    element.classList.toggle('hidden', !show);
+  },
+  
+  showError(error) {
+    if (!this.elements.errorElement) return;
+    this.elements.errorElement.textContent = error;
+    this.elements.errorElement.classList.remove('hidden');
+  },
+  
+  hideError() {
+    if (!this.elements.errorElement) return;
+    this.elements.errorElement.classList.add('hidden');
+  },
+  
+  showTransaction(transaction) {
+    this.toggleElement(this.elements.transactionDetails, true);
+    this.updateStatus(transaction);
+    this.updateDetails(transaction);
+  },
+  
+  hideTransaction() {
+    this.toggleElement(this.elements.transactionDetails, false);
+  },
+  
+  updateStatus(transaction) {
+    if (!this.elements.statusElement) return;
     
-    // Update status
+    const { riskLevel, riskFactors = [] } = transaction;
     let statusClass = '';
     let statusText = '';
+    let icon = '';
     
-    switch (data.riskLevel) {
+    switch (riskLevel) {
       case 'low':
         statusClass = 'safe';
-        statusText = '✅ Transaction appears safe';
+        statusText = 'Transaction appears safe';
+        icon = '✅';
         break;
       case 'medium':
         statusClass = 'warning';
-        statusText = '⚠️ Review transaction carefully';
+        statusText = 'Review transaction carefully';
+        icon = '⚠️';
         break;
       case 'high':
+        statusClass = 'danger';
+        statusText = 'High risk transaction detected';
+        icon = '🚨';
+        break;
       case 'critical':
         statusClass = 'danger';
-        statusText = '❌ High risk transaction detected';
+        statusText = 'CRITICAL: Extremely risky transaction';
+        icon = '💀';
+        break;
+      case 'error':
+        statusClass = 'warning';
+        statusText = 'Analysis failed';
+        icon = '❌';
         break;
       default:
         statusClass = 'warning';
-        statusText = '⚠️ Unable to determine risk level';
+        statusText = 'Unable to determine risk level';
+        icon = '❓';
     }
     
-    statusElement.className = `status ${statusClass}`;
-    statusElement.textContent = statusText;
+    this.elements.statusElement.className = `status ${statusClass}`;
+    this.elements.statusElement.innerHTML = `<span class="status-icon">${icon}</span> ${statusText}`;
+  },
+  
+  updateDetails(transaction) {
+    if (!this.elements.detailsElement) return;
     
-    // Clear previous details
-    detailsElement.innerHTML = '';
+    const details = [];
     
-    // Only show details if we have valid data
-    if (data.from || data.to) {
-      const detailsHTML = [];
-      
-      if (data.from) {
-        detailsHTML.push(`<p><strong>From:</strong> ${shortenAddress(data.from)}</p>`);
-      }
-      
-      if (data.to) {
-        detailsHTML.push(`<p><strong>To:</strong> ${shortenAddress(data.to)}</p>`);
-      }
-      
-      detailsHTML.push(`
-        <p><strong>Value:</strong> ${data.value || '0'} ETH</p>
-        <p><strong>Gas:</strong> ${data.gas || '0'}</p>
-        <p><strong>Nonce:</strong> ${data.nonce || '0'}</p>
-        <p><strong>Data:</strong> ${data.data ? 'Present' : 'None'}</p>
-      `);
-      
-      detailsElement.innerHTML = detailsHTML.join('');
+    // Basic transaction info
+    if (transaction.from) {
+      details.push(`<div class="detail-row">
+        <span class="label">From:</span>
+        <span class="value address" title="${transaction.from}">${shortenAddress(transaction.from)}</span>
+      </div>`);
     }
     
-    // Add recommendations if any
-    if (data.recommendations && data.recommendations.length > 0) {
-      const recommendations = document.createElement('div');
-      recommendations.className = 'recommendations';
-      recommendations.innerHTML = 
-        '<h4>Recommendations:</h4><ul>' + 
-        data.recommendations.map(rec => `<li>${rec}</li>`).join('') + 
-        '</ul>';
-      detailsElement.appendChild(recommendations);
+    if (transaction.to) {
+      details.push(`<div class="detail-row">
+        <span class="label">To:</span>
+        <span class="value address" title="${transaction.to}">${shortenAddress(transaction.to)}</span>
+      </div>`);
+    }
+    
+    const valueEth = transaction.value ? (parseFloat(transaction.value) / 1e18).toFixed(6) : '0';
+    details.push(`<div class="detail-row">
+      <span class="label">Value:</span>
+      <span class="value">${valueEth} ETH</span>
+    </div>`);
+    
+    if (transaction.gasInfo) {
+      const { gasLimit, gasPrice, estimatedCost } = transaction.gasInfo;
+      const gasPriceGwei = gasPrice ? (gasPrice / 1e9).toFixed(2) : 'Unknown';
+      details.push(`<div class="detail-row">
+        <span class="label">Gas:</span>
+        <span class="value">${gasLimit || 'Unknown'} @ ${gasPriceGwei} Gwei</span>
+      </div>`);
+    }
+    
+    if (transaction.data && transaction.data !== '0x') {
+      details.push(`<div class="detail-row">
+        <span class="label">Data:</span>
+        <span class="value">Contract interaction</span>
+      </div>`);
+    }
+    
+    // Domain info
+    if (transaction.url) {
+      const domain = new URL(transaction.url).hostname;
+      details.push(`<div class="detail-row">
+        <span class="label">dApp:</span>
+        <span class="value">${domain}</span>
+      </div>`);
+    }
+    
+    this.elements.detailsElement.innerHTML = details.join('');
+    
+    // Add recommendations
+    this.addRecommendations(transaction.recommendations || []);
+  },
+  
+  addRecommendations(recommendations) {
+    if (!recommendations.length) return;
+    
+    const recommendationsEl = document.createElement('div');
+    recommendationsEl.className = 'recommendations';
+    recommendationsEl.innerHTML = `
+      <h4>Security Analysis:</h4>
+      <ul>
+        ${recommendations.map(rec => `<li>${rec}</li>`).join('')}
+      </ul>
+    `;
+    
+    this.elements.detailsElement.appendChild(recommendationsEl);
+  },
+  
+  updateButtons(loading, hasTransaction) {
+    if (this.elements.approveBtn) {
+      this.elements.approveBtn.disabled = loading || !hasTransaction;
+    }
+    if (this.elements.rejectBtn) {
+      this.elements.rejectBtn.disabled = loading || !hasTransaction;
     }
   }
+};
+
+// Initialize popup when DOM is ready
+document.addEventListener('DOMContentLoaded', async () => {
+  console.log('🛡️ Web3 Guardian popup initializing...');
   
-  // Show loading state
-  function showLoading(message = 'Loading...') {
-    loadingElement.classList.remove('hidden');
-    statusElement.classList.add('hidden');
-    transactionDetails.classList.add('hidden');
-    loadingElement.textContent = message;
-    
-    // Disable buttons while loading
-    approveBtn.disabled = true;
-    rejectBtn.disabled = true;
+  try {
+    UI.init();
+    await initializePopup();
+    isInitialized = true;
+    console.log('✅ Popup initialized successfully');
+  } catch (error) {
+    console.error('❌ Popup initialization failed:', error);
+    UI.setState({ 
+      loading: false, 
+      error: `Initialization failed: ${error.message}` 
+    });
   }
-  
-  // Show a message
-  function showMessage(message, type = 'info') {
-    loadingElement.classList.add('hidden');
-    statusElement.classList.remove('hidden');
-    transactionDetails.classList.add('hidden');
-    
-    statusElement.textContent = message;
-    statusElement.className = `status ${type}`;
-    
-    // Disable buttons on error
-    if (type === 'error') {
-      approveBtn.disabled = true;
-      rejectBtn.disabled = true;
-    }
-  }
-  
-  // Shorten an Ethereum address for display
-  function shortenAddress(address) {
-    if (!address || typeof address !== 'string') return 'Unknown';
-    return address.length > 10 
-      ? `${address.substring(0, 6)}...${address.substring(address.length - 4)}`
-      : address;
-  }
-  
-  // Event listeners
-  approveBtn.addEventListener('click', async () => {
-    try {
-      showLoading('Processing approval...');
-      await chrome.runtime.sendMessage({ 
-        type: 'TRANSACTION_RESPONSE', 
-        approved: true 
-      });
-      window.close();
-    } catch (error) {
-      console.error('Error approving transaction:', error);
-      showMessage('Failed to approve transaction', 'error');
-    }
-  });
-  
-  rejectBtn.addEventListener('click', async () => {
-    try {
-      showLoading('Processing rejection...');
-      await chrome.runtime.sendMessage({ 
-        type: 'TRANSACTION_RESPONSE', 
-        approved: false 
-      });
-      window.close();
-    } catch (error) {
-      console.error('Error rejecting transaction:', error);
-      showMessage('Failed to reject transaction', 'error');
-    }
-  });
-  
-  // Initialize the popup
-  initPopup();
 });
+
+// Main initialization function
+async function initializePopup() {
+  UI.setState({ loading: true, error: null });
+  
+  try {
+    // First, try to get pending transactions
+    const pendingTxResponse = await sendMessage({ type: 'GET_PENDING_TRANSACTIONS' });
+    
+    if (pendingTxResponse.success && pendingTxResponse.data.transactions.length > 0) {
+      // Show the most recent pending transaction
+      const latestTx = pendingTxResponse.data.transactions
+        .sort((a, b) => b.timestamp - a.timestamp)[0];
+      
+      currentTransaction = latestTx;
+      UI.setState({ 
+        loading: false,
+        transaction: latestTx
+      });
+      return;
+    }
+    
+    // If no pending transactions, get current tab status
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) {
+      throw new Error('No active tab found');
+    }
+    
+    const statusResponse = await sendMessage({ 
+      type: 'GET_TRANSACTION_STATUS'
+    });
+    
+    if (statusResponse.success) {
+      UI.setState({ 
+        loading: false,
+        transaction: {
+          ...statusResponse.data,
+          riskLevel: 'info',
+          recommendations: statusResponse.data.isConnected 
+            ? ['Wallet connected - ready to analyze transactions']
+            : ['No wallet connected to this site']
+        }
+      });
+    } else if (statusResponse.fallbackData) {
+      UI.setState({ 
+        loading: false,
+        transaction: {
+          ...statusResponse.fallbackData,
+          riskLevel: 'warning',
+          recommendations: ['Content script not available - limited functionality']
+        }
+      });
+    } else {
+      throw new Error(statusResponse.error || 'Failed to get transaction status');
+    }
+    
+  } catch (error) {
+    console.error('Error during initialization:', error);
+    UI.setState({ 
+      loading: false, 
+      error: `Failed to load: ${error.message}` 
+    });
+  }
+}
+
+// Handle transaction approval/rejection
+async function handleTransactionDecision(approved) {
+  if (!currentTransaction?.id) {
+    UI.setState({ error: 'No transaction to process' });
+    return;
+  }
+  
+  UI.setState({ loading: true });
+  
+  try {
+    const response = await sendMessage({
+      type: 'TRANSACTION_DECISION',
+      messageId: currentTransaction.id,
+      approved
+    });
+    
+    if (response.success) {
+      // Show success message briefly then close
+      UI.setState({ 
+        loading: false,
+        transaction: {
+          ...currentTransaction,
+          riskLevel: approved ? 'success' : 'rejected',
+          recommendations: [approved ? '✅ Transaction approved' : '❌ Transaction rejected']
+        }
+      });
+      
+      setTimeout(() => {
+        window.close();
+      }, 1500);
+    } else {
+      throw new Error(response.error || 'Failed to process decision');
+    }
+    
+  } catch (error) {
+    console.error('Error processing transaction decision:', error);
+    UI.setState({ 
+      loading: false,
+      error: `Failed to ${approved ? 'approve' : 'reject'} transaction: ${error.message}`
+    });
+  }
+}
+
+// Refresh transaction status
+async function refreshTransactionStatus() {
+  try {
+    await initializePopup();
+  } catch (error) {
+    UI.setState({ error: `Refresh failed: ${error.message}` });
+  }
+}
+
+// Open settings (placeholder)
+function openSettings() {
+  // In a full implementation, this would open a settings page
+  alert('Settings panel coming soon!');
+}
+
+// Listen for messages from background script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('Popup received message:', message.type);
+  
+  switch (message.type) {
+    case 'PENDING_TRANSACTION_UPDATE':
+      if (message.data) {
+        currentTransaction = message.data;
+        UI.setState({ 
+          loading: false,
+          transaction: message.data
+        });
+      }
+      break;
+      
+    case 'TRANSACTION_STATUS_UPDATE':
+      if (message.data) {
+        UI.setState({ 
+          transaction: {
+            ...UI.state.transaction,
+            ...message.data
+          }
+        });
+      }
+      break;
+  }
+  
+  sendResponse({ received: true });
+});
+
+// Utility functions
+function sendMessage(message, timeout = 10000) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error('Request timeout'));
+    }, timeout);
+    
+    chrome.runtime.sendMessage(message, (response) => {
+      clearTimeout(timeoutId);
+      
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else if (!response) {
+        reject(new Error('No response received'));
+      } else {
+        resolve(response);
+      }
+    });
+  });
+}
+
+function shortenAddress(address) {
+  if (!address || typeof address !== 'string') return 'Unknown';
+  if (address.length <= 10) return address;
+  return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+}
+
+// Export for testing
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    UI,
+    initializePopup,
+    handleTransactionDecision,
+    shortenAddress
+  };
+}
