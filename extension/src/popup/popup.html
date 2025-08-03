@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Web3 Guardian</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 15px;
+      font-family: Arial, sans-serif;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 15px;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+    .safe {
+      background-color: #e6f7e6;
+      color: #2e7d32;
+    }
+    .warning {
+      background-color: #fff8e1;
+      color: #ff8f00;
+    }
+    .danger {
+      background-color: #ffebee;
+      color: #c62828;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>Web3 Guardian</h2>
+    <p>Securing your Web3 transactions</p>
+  </div>
+  
+  <div id="loading" class="status">
+    Analyzing transaction...
+  </div>
+  
+  <div id="status" class="status hidden">
+    <!-- Status will be shown here -->
+  </div>
+  
+  <div id="transaction-details" class="hidden">
+    <h3>Transaction Details</h3>
+    <div id="details"></div>
+    
+    <div style="margin-top: 15px;">
+      <button id="approve-btn" style="background-color: #4CAF50; color: white; padding: 8px 16px; border: none; border-radius: 4px; margin-right: 10px; cursor: pointer;">
+        Approve
+      </button>
+      <button id="reject-btn" style="background-color: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">
+        Reject
+      </button>
+    </div>
+  </div>
+
+  <script src="popup.bundle.js"></script>
+</body>
+</html>
