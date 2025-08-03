@@ -66,42 +66,116 @@ function setupWeb3Interception() {
     return;
   }
 
-  // Store the original send method
-  const originalSend = window.ethereum.send || window.ethereum.sendAsync;
-  
-  if (!originalSend) {
-    console.log('Could not intercept Web3 provider');
-    return;
-  }
+  // Store the original methods
+  const originalMethods = {
+    send: window.ethereum.send,
+    sendAsync: window.ethereum.sendAsync,
+    request: window.ethereum.request,
+    enable: window.ethereum.enable
+  };
 
-  // Override the send method
-  window.ethereum.send = function(method, params) {
-    console.log('Intercepted Web3 transaction:', { method, params });
-    
-    // Show the extension popup for transaction review
-    chrome.runtime.sendMessage({
-      type: 'SHOW_TRANSACTION',
-      data: { method, params }
-    });
-    
-    // Return a promise that resolves when the user approves/rejects
-    return new Promise((resolve, reject) => {
-      chrome.runtime.onMessage.addListener(function listener(response) {
-        if (response.type === 'TRANSACTION_RESPONSE') {
-          chrome.runtime.onMessage.removeListener(listener);
-          if (response.approved) {
-            // User approved, proceed with the original transaction
-            originalSend.call(window.ethereum, method, params)
-              .then(resolve)
-              .catch(reject);
-          } else {
-            // User rejected
-            reject(new Error('Transaction rejected by user'));
-          }
+  // Helper function to handle transaction data
+  async function handleTransaction(transaction) {
+    try {
+      // Get basic transaction data from the page
+      const txData = getTransactionData();
+      
+      // Merge with transaction details
+      const fullTxData = {
+        ...txData,
+        ...transaction,
+        // Convert hex values to decimal for better readability
+        value: transaction.value ? parseInt(transaction.value, 16) : 0,
+        gas: transaction.gas ? parseInt(transaction.gas, 16) : null,
+        gasPrice: transaction.gasPrice ? parseInt(transaction.gasPrice, 16) : null,
+        nonce: transaction.nonce ? parseInt(transaction.nonce, 16) : null
+      };
+      
+      console.log('Intercepted transaction:', fullTxData);
+      
+      // Send to background for analysis
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          type: 'ANALYZE_TRANSACTION',
+          data: fullTxData
+        }, resolve);
+      });
+      
+      // Show the popup with transaction details
+      chrome.runtime.sendMessage({
+        type: 'SHOW_TRANSACTION',
+        data: {
+          ...fullTxData,
+          riskLevel: response.riskLevel,
+          recommendations: response.recommendations || []
         }
       });
-    });
+      
+      // Wait for user response
+      return new Promise((resolve, reject) => {
+        chrome.runtime.onMessage.addListener(function listener(msg) {
+          if (msg.type === 'TRANSACTION_RESPONSE') {
+            chrome.runtime.onMessage.removeListener(listener);
+            if (msg.approved) {
+              resolve(msg.data);
+            } else {
+              reject(new Error('Transaction rejected by user'));
+            }
+          }
+        });
+      });
+    } catch (error) {
+      console.error('Error handling transaction:', error);
+      throw error;
+    }
+  }
+
+  // Override the request method (used by most modern dApps)
+  window.ethereum.request = async function(payload) {
+    console.log('Intercepted request:', payload);
+    
+    // Handle transaction requests
+    if (payload.method === 'eth_sendTransaction' || 
+        payload.method === 'eth_signTransaction') {
+      const transaction = payload.params[0];
+      await handleTransaction(transaction);
+    }
+    
+    // Call the original method
+    return originalMethods.request.call(this, payload);
   };
+  
+  // Override the send method (legacy)
+  window.ethereum.send = function(method, params) {
+    console.log('Intercepted send:', { method, params });
+    
+    if (method === 'eth_sendTransaction' || 
+        method === 'eth_signTransaction') {
+      const transaction = Array.isArray(params) ? params[0] : params;
+      return handleTransaction(transaction)
+        .then(() => originalMethods.send.call(this, method, params));
+    }
+    
+    return originalMethods.send.call(this, method, params);
+  };
+  
+  // Override sendAsync (legacy)
+  if (originalMethods.sendAsync) {
+    window.ethereum.sendAsync = function(payload, callback) {
+      console.log('Intercepted sendAsync:', payload);
+      
+      if (payload.method === 'eth_sendTransaction' || 
+          payload.method === 'eth_signTransaction') {
+        const transaction = payload.params[0];
+        handleTransaction(transaction)
+          .then(() => originalMethods.sendAsync.call(this, payload, callback))
+          .catch(callback);
+        return;
+      }
+      
+      return originalMethods.sendAsync.call(this, payload, callback);
+    };
+  }
 }
 
 // Initialize the content script
