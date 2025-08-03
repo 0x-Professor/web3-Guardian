@@ -11,88 +11,114 @@ document.addEventListener('DOMContentLoaded', function() {
   // Set initial UI state
   showLoading('Connecting to Web3 Guardian...');
   
-  // Initialize the popup with retry logic
-  let retryCount = 0;
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY = 500; // ms
-  
-  // Start initialization
+  // Initialize the popup
   initPopup().catch(error => {
     console.error('Popup initialization failed:', error);
     showMessage('Failed to initialize. Please try again.', 'error');
   });
 
-  // Initialize the popup
-async function initPopup() {
-  try {
-    // Get the active tab
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
-    if (!tab) {
-      showError('No active tab found');
-      return;
+  // Function to handle the response from the content script
+  async function handleContentScriptResponse(response) {
+    if (response && response.success === false) {
+      throw new Error(response.error || 'Failed to analyze transaction');
     }
     
-    console.log('Initializing popup for tab:', tab.url);
-    
-    // Try to get transaction status with retry logic
-    let response;
-    let retryCount = 0;
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY = 1000; // ms
-    
-    while (retryCount < MAX_RETRIES) {
-      try {
-        console.log(`Attempt ${retryCount + 1}/${MAX_RETRIES} to connect to content script...`);
-        
-        // First try to get the transaction status
-        response = await new Promise((resolve, reject) => {
-          chrome.runtime.sendMessage(
-            { type: 'GET_TRANSACTION_STATUS' },
-            (response) => {
-              if (chrome.runtime.lastError) {
-                reject(chrome.runtime.lastError);
-              } else if (!response) {
-                reject(new Error('No response from background script'));
-              } else if (response.error) {
-                reject(new Error(response.error));
-              } else {
-                resolve(response);
+    if (response) {
+      updateUI(response);
+    } else {
+      showMessage('No active transaction detected', 'info');
+    }
+  }
+
+  // Initialize the popup
+  async function initPopup() {
+    try {
+      // Get the active tab
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab) {
+        showError('No active tab found');
+        return;
+      }
+      
+      console.log('Initializing popup for tab:', tab.url);
+      
+      // Show loading state
+      showLoading('Analyzing transaction...');
+      
+      // Try to get transaction status with retry logic
+      let response;
+      let retryCount = 0;
+      const MAX_RETRIES = 3;
+      const RETRY_DELAY = 1000; // ms
+      
+      while (retryCount < MAX_RETRIES) {
+        try {
+          console.log(`Attempt ${retryCount + 1}/${MAX_RETRIES} to connect to content script...`);
+          
+          // First try to get the transaction status
+          response = await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage(
+              { type: 'GET_TRANSACTION_STATUS' },
+              (response) => {
+                if (chrome.runtime.lastError) {
+                  reject(chrome.runtime.lastError);
+                } else if (!response) {
+                  reject(new Error('No response from background script'));
+                } else if (response.error) {
+                  reject(new Error(response.error));
+                } else {
+                  resolve(response);
+                }
+              }
+            );
+            
+            // Set a timeout for the response
+            setTimeout(() => {
+              reject(new Error('Request timed out'));
+            }, 5000);
+          });
+          
+          console.log('Received response:', response);
+          return handleContentScriptResponse(response);
+          
+        } catch (error) {
+          console.error(`Attempt ${retryCount + 1} failed:`, error);
+          retryCount++;
+          
+          if (retryCount >= MAX_RETRIES) {
+            // If we've exhausted all retries, try to inject the content script manually
+            if (error.message.includes('inject') || error.message.includes('content script')) {
+              console.log('Attempting to inject content script manually...');
+              try {
+                await chrome.scripting.executeScript({
+                  target: { tabId: tab.id },
+                  files: ['content.bundle.js']
+                });
+                console.log('Content script injected successfully');
+                // Give it a moment to initialize
+                await new Promise(resolve => setTimeout(resolve, 500));
+                // Try one more time
+                retryCount--;
+                continue;
+              } catch (injectError) {
+                console.error('Failed to inject content script:', injectError);
               }
             }
-          );
+            
+            // If we've exhausted all options, show the error
+            throw new Error(`Could not connect to the content script: ${error.message}`);
+          }
           
-          // Set a timeout for the response
-          setTimeout(() => {
-            if (!response) {
-              reject(new Error('Timeout waiting for content script response'));
-            }
-          }, 5000); // 5 second timeout
-        });
-      } catch (error) {
-        console.error('Error communicating with content script:', error);
-        if (retryCount < MAX_RETRIES) {
-          retryCount++;
-          const delay = RETRY_DELAY * retryCount; // Exponential backoff
-          console.log(`Retry ${retryCount}/${MAX_RETRIES} in ${delay}ms...`);
+          // Wait before retrying
+          const delay = RETRY_DELAY * Math.pow(2, retryCount - 1); // Exponential backoff
+          console.log(`Retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
-          return initPopup();
         }
-        throw new Error(`Could not connect to the content script: ${error.message}`);
-      }
-      
-      if (response && response.success === false) {
-        throw new Error(response.error || 'Failed to analyze transaction');
-      }
-      
-      if (response) {
-        updateUI(response);
-      } else {
-        showMessage('No active transaction detected', 'info');
       }
     } catch (error) {
-      console.error('Error in popup:', error);
-      showMessage(error.message || 'Error analyzing transaction', 'error');
+      console.error('Error in popup initialization:', error);
+      showMessage(error.message || 'Error initializing popup', 'error');
     }
   }
 
