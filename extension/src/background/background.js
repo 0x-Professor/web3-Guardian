@@ -3,23 +3,10 @@ import { logInfo, logError, logDebug } from "../utils/logger.js";
 import { fetchAnalysis, fetchGasPrice, simulateTransaction } from "../utils/api.js";
 
 // Load environment variables
-const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || 'demo-key';
-const ETHERSCAN_API_KEY = process.env.ETHERSCAN_MAINNET_API_KEY || 'demo-key';
+const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || 'vH5jh4T1PWnfVIxV7su69';
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_MAINNET_API_KEY || '3NK7D3FBF2AQ23RBEDPX9BVZH4DD4E3DHZ';
+const INFURA_KEY = process.env.INFURA_API_KEY || '';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
-
-// Track current user accounts
-let currentAccounts = [];
-
-// Cache for contract information and analysis results
-const contractCache = new Map();
-const analysisCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-// Configuration
-const CONFIG = {
-  MAX_CACHE_ITEMS: 100,
-  CACHE_TTL: CACHE_TTL
-};
 
 // Initialize provider with Alchemy as primary, fallback to Infura
 let provider;
@@ -31,6 +18,13 @@ try {
   provider = new ethers.providers.InfuraProvider('homestead', INFURA_KEY);
 }
 
+// Track current user accounts
+let currentAccounts = [];
+
+// Cache for contract information
+const contractCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 // Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   logInfo(`Received message type: ${request.type}`, { 
@@ -40,11 +34,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   // Handle the message based on type
   const messageHandlers = {
-    GET_TRANSACTION_STATUS: () => getTransactionStatus(sender.tab?.id, sendResponse),
-    ANALYZE_TRANSACTION: () => handleAnalyzeTransaction(request.data || request.txData, sendResponse, sender),
-    SHOW_TRANSACTION: () => handleShowTransaction(request.data, sender.tab, sendResponse),
-    TRANSACTION_RESPONSE: () => handleTransactionResponse(request),
     ANALYZE_DAPP: () => handleAnalyzeDapp(request.url, sendResponse),
+    ANALYZE_TRANSACTION: () => handleAnalyzeTransaction(request.txData, sendResponse, sender),
     ACCOUNTS_CHANGED: () => {
       currentAccounts = request.accounts;
       logInfo("Updated current accounts", { count: currentAccounts.length });
@@ -84,50 +75,41 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   return true; // Keep message channel open for async responses
 });
+        chrome.tabs.sendMessage(
+          tabId,
+          { type: 'PING' },
+          { frameId: 0 }, // Main frame only
+          (response) => {
+            if (chrome.runtime.lastError) {
+              console.error('Content script not responding:', chrome.runtime.lastError);
+              // Try to inject the content script
+              chrome.scripting.executeScript({
+                target: { tabId },
+                files: ['content.bundle.js']
+              }).then(() => {
+                console.log('Content script injected programmatically');
+                // Now try to get the transaction status again
+                getTransactionStatus(tabId, sendResponse);
+              }).catch(err => {
+                console.error('Failed to inject content script:', err);
+                sendResponse({
+                  success: false,
+                  error: 'Failed to inject content script: ' + err.message
+                });
+              });
+            } else {
+              console.log('Content script is responsive, getting transaction status');
+              getTransactionStatus(tabId, sendResponse);
+            }
+          }
+        );
+     
+      
+     
+    
 
 // Helper function to get transaction status from content script
 function getTransactionStatus(tabId, sendResponse) {
-  if (!tabId) {
-    sendResponse({
-      success: false,
-      error: 'No tab ID provided'
-    });
-    return;
-  }
-
-  // First ping the content script to see if it's responsive
-  chrome.tabs.sendMessage(
-    tabId,
-    { type: 'PING' },
-    { frameId: 0 }, // Main frame only
-    (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('Content script not responding:', chrome.runtime.lastError);
-        // Try to inject the content script
-        chrome.scripting.executeScript({
-          target: { tabId },
-          files: ['content.bundle.js']
-        }).then(() => {
-          console.log('Content script injected programmatically');
-          // Now try to get the transaction status again
-          getTransactionStatusFromContent(tabId, sendResponse);
-        }).catch(err => {
-          console.error('Failed to inject content script:', err);
-          sendResponse({
-            success: false,
-            error: 'Failed to inject content script: ' + err.message
-          });
-        });
-      } else {
-        console.log('Content script is responsive, getting transaction status');
-        getTransactionStatusFromContent(tabId, sendResponse);
-      }
-    }
-  );
-}
-
-// Helper function to get transaction status from content script
-function getTransactionStatusFromContent(tabId, sendResponse) {
   chrome.tabs.sendMessage(
     tabId,
     { type: 'GET_TRANSACTION_STATUS' },
@@ -178,14 +160,10 @@ async function handleAnalyzeTransaction(txData, sendResponse) {
       result = await analyzeTransactionLocally(txData);
       console.log('Local analysis result:', result);
     } catch (localError) {
-      console.error('Local analysis failed:', localError);
-      // Create a fallback response
-      result = {
-        success: false,
-        error: localError.message,
-        riskLevel: 'unknown',
-        recommendations: ['Analysis failed: ' + localError.message]
-      };
+      console.error('Local analysis failed, trying backend...', localError);
+      // In a real implementation, you would try the backend here
+      // For now, we'll rethrow the local error
+      throw new Error(`Analysis failed: ${localError.message}`);
     }
     
     // Cache the result if successful
@@ -305,28 +283,6 @@ function handleTransactionResponse(response) {
   console.log('Received transaction response:', response);
 }
 
-// Handle dApp analysis request
-function handleAnalyzeDapp(url, sendResponse) {
-  // Basic dApp analysis - in a real implementation this would be more sophisticated
-  try {
-    const analysis = {
-      success: true,
-      url: url,
-      riskLevel: 'low',
-      recommendations: ['This appears to be a legitimate dApp'],
-      timestamp: new Date().toISOString()
-    };
-    
-    sendResponse(analysis);
-  } catch (error) {
-    sendResponse({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-}
-
 // Generate a cache key for transaction data
 function generateCacheKey(txData) {
   return JSON.stringify({
@@ -336,3 +292,27 @@ function generateCacheKey(txData) {
     data: txData.data
   });
 }
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  switch (request.type) {
+    case 'GET_TRANSACTION_STATUS':
+      getTransactionStatus(sender.tab.id, sendResponse);
+      break;
+    case 'ANALYZE_TRANSACTION':
+      handleAnalyzeTransaction(request.txData, sendResponse, sender);
+      break;
+    case 'SHOW_TRANSACTION':
+      handleShowTransaction(request.txData, sender.tab, sendResponse);
+      break;
+    case 'TRANSACTION_RESPONSE':
+      handleTransactionResponse(request.response);
+      break;
+    case 'ANALYZE_DAPP':
+      handleAnalyzeDapp(request.url, sendResponse);
+      break;
+    default:
+      console.warn('Unknown message type:', request.type);
+      sendResponse({ success: false, error: 'Unknown message type' });
+      return false;
+  }
+});
