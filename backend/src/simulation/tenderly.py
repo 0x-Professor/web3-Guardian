@@ -36,58 +36,84 @@ class TenderlySimulator:
     
     def simulate_transaction(
         self,
-        tx_data: Dict[str, Any],
-        network_id: str = "1",  # Mainnet by default
+        tx_params: Dict[str, Any],
+        network_id: int = 1,
         block_number: Optional[int] = None,
         save: bool = True
     ) -> Dict[str, Any]:
         """Simulate a transaction using Tenderly.
         
         Args:
-            tx_data: Transaction data including from, to, value, data, gas, gasPrice
-            network_id: Network ID (1 for mainnet, 5 for Goerli, etc.)
-            block_number: Block number to simulate at (latest if None)
-            save: Whether to save the simulation in Tenderly dashboard
+            tx_params: Transaction parameters including from, to, data, value, etc.
+            network_id: Network ID (default: 1 for mainnet)
+            block_number: Block number to simulate at (default: latest)
+            save: Whether to save the simulation in Tenderly
             
         Returns:
-            Simulation results
+            Dictionary containing simulation results
         """
-        url = f"{self.BASE_URL}/account/{self.username}/project/{self.project_slug}/simulate"
-        
-        # Prepare simulation parameters
-        params = {
-            "save": save,
-            "simulation_type": "full",
-            "network_id": str(network_id),
-        }
-        
-        if block_number is not None:
-            params["block_number"] = block_number
-        
-        # Prepare transaction data
-        simulation_data = {
-            "from": tx_data.get("from"),
-            "to": tx_data.get("to"),
-            "input": tx_data.get("data", "0x"),
-            "gas": int(tx_data.get("gas", 3000000)),
-            "gas_price": str(tx_data.get("gasPrice", "0x0")),
-            "value": str(tx_data.get("value", "0x0")),
-            "save_if_fails": True
-        }
-        
+        if not hasattr(self, 'tenderly') or not self.tenderly:
+            logger.warning("Tenderly not properly initialized")
+            return {"error": "Tenderly not configured"}
+            
         try:
-            response = self.session.post(
-                url,
-                params=params,
-                json=simulation_data
+            # Get the network from our mapping, default to mainnet
+            network = self.network_map.get(network_id, Network.MAINNET)
+            
+            # Prepare the simulation request
+            request = SimulationRequest(
+                from_=tx_params.get('from'),
+                to=tx_params.get('to'),
+                input=tx_params.get('data', '0x'),
+                gas=int(tx_params.get('gas', 3000000)),
+                gas_price=int(tx_params.get('gasPrice', '0x0'), 16) if isinstance(tx_params.get('gasPrice'), str) else tx_params.get('gasPrice', 0),
+                value=int(tx_params.get('value', '0x0'), 16) if isinstance(tx_params.get('value'), str) else tx_params.get('value', 0),
+                save=save,
+                network_id=network.value,
+                block_number=block_number,
+                save_if_fails=True
             )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
+            
+            # Add optional parameters if they exist
+            if 'nonce' in tx_params:
+                request.nonce = tx_params['nonce']
+                
+            if 'accessList' in tx_params:
+                request.access_list = tx_params['accessList']
+                
+            if 'maxFeePerGas' in tx_params:
+                request.max_fee_per_gas = int(tx_params['maxFeePerGas'], 16) if isinstance(tx_params['maxFeePerGas'], str) else tx_params['maxFeePerGas']
+                
+            if 'maxPriorityFeePerGas' in tx_params:
+                request.max_priority_fee_per_gas = (
+                    int(tx_params['maxPriorityFeePerGas'], 16) 
+                    if isinstance(tx_params['maxPriorityFeePerGas'], str) 
+                    else tx_params['maxPriorityFeePerGas']
+                )
+            
+            # Run the simulation
+            simulation = self.tenderly.simulator.simulate(request)
+            
+            # Process the simulation results
+            return {
+                "success": simulation.status,
+                "gas_used": simulation.gas_used,
+                "block_number": simulation.block_number,
+                "transaction_hash": simulation.transaction_hash,
+                "status": simulation.status,
+                "error": simulation.error_message,
+                "logs": simulation.logs or [],
+                "trace": simulation.trace or [],
+                "state_diff": simulation.state_diff or {},
+                "simulation_id": simulation.id
+            }
+            
+        except Exception as e:
             logger.error(f"Tenderly simulation failed: {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"Response: {e.response.text}")
-            raise
+            return {
+                "success": False,
+                "error": f"Tenderly simulation error: {str(e)}"
+            }
     
     def get_gas_used(self, simulation_result: Dict[str, Any]) -> int:
         """Extract gas used from simulation result."""
