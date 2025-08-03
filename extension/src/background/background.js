@@ -29,11 +29,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'TRANSACTION_RESPONSE':
       handleTransactionResponse(request.data);
       sendResponse({ success: true });
-      break;
+      return true;
+      
+    case 'GET_TRANSACTION_STATUS':
+      // Forward to content script
+      chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+        if (tabs[0]) {
+          chrome.tabs.sendMessage(tabs[0].id, 
+            { type: 'GET_TRANSACTION_STATUS' },
+            {}, 
+            (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('Error getting transaction status:', chrome.runtime.lastError);
+                sendResponse({ success: false, error: chrome.runtime.lastError });
+              } else {
+                sendResponse(response || { success: false, error: 'No response from content script' });
+              }
+            }
+          );
+        } else {
+          sendResponse({ success: false, error: 'No active tab found' });
+        }
+      });
+      return true; // Keep the message channel open for async response
       
     default:
       console.warn('Unknown message type:', request.type);
       sendResponse({ success: false, error: 'Unknown message type' });
+      return false;
   }
 });
 
