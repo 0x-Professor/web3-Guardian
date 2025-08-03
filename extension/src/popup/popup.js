@@ -23,36 +23,40 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Initialize the popup
-  async function initPopup() {
-    try {
-      // Get the current tab
-      const [tab] = await chrome.tabs.query({ 
-        active: true, 
-        currentWindow: true,
-        url: ['*://*/*']
-      });
-      
-      if (!tab) {
-        throw new Error('No active tab found');
-      }
-      
-      // Show loading state
-      showLoading('Analyzing transaction...');
-      
-      // Try to get transaction status with retry logic
-      let response;
+async function initPopup() {
+  try {
+    // Get the active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    if (!tab) {
+      showError('No active tab found');
+      return;
+    }
+    
+    console.log('Initializing popup for tab:', tab.url);
+    
+    // Try to get transaction status with retry logic
+    let response;
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1000; // ms
+    
+    while (retryCount < MAX_RETRIES) {
       try {
-        console.log('Sending GET_TRANSACTION_STATUS to tab:', tab.id);
+        console.log(`Attempt ${retryCount + 1}/${MAX_RETRIES} to connect to content script...`);
+        
+        // First try to get the transaction status
         response = await new Promise((resolve, reject) => {
-          chrome.tabs.sendMessage(
-            tab.id, 
+          chrome.runtime.sendMessage(
             { type: 'GET_TRANSACTION_STATUS' },
             (response) => {
               if (chrome.runtime.lastError) {
-                console.error('Error sending message to tab:', chrome.runtime.lastError);
                 reject(chrome.runtime.lastError);
+              } else if (!response) {
+                reject(new Error('No response from background script'));
+              } else if (response.error) {
+                reject(new Error(response.error));
               } else {
-                console.log('Received response from content script:', response);
                 resolve(response);
               }
             }
