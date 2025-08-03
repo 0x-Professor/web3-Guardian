@@ -116,11 +116,60 @@ class TenderlySimulator:
             }
     
     def get_gas_used(self, simulation_result: Dict[str, Any]) -> int:
-        """Extract gas used from simulation result."""
-        return simulation_result.get("transaction", {}).get("gas_used", 0)
+        """Extract gas used from simulation result.
+        
+        Args:
+            simulation_result: Result from simulate_transaction
+            
+        Returns:
+            int: Gas used in the simulation, or 0 if not available
+        """
+        try:
+            return int(simulation_result.get("gas_used", 0))
+        except (ValueError, AttributeError):
+            return 0
     
     def get_error_message(self, simulation_result: Dict[str, Any]) -> Optional[str]:
-        """Extract error message if simulation failed."""
-        if simulation_result.get("simulation", {}).get("status"):
+        """Extract error message from simulation result if any.
+        
+        Args:
+            simulation_result: Result from simulate_transaction
+            
+        Returns:
+            Optional[str]: Error message if simulation failed, None otherwise
+        """
+        if not simulation_result.get("success", False):
+            return simulation_result.get("error")
+        return None
+    
+    def is_simulation_successful(self, simulation_result: Dict[str, Any]) -> bool:
+        """Check if simulation was successful.
+        
+        Args:
+            simulation_result: Result from simulate_transaction
+            
+        Returns:
+            bool: True if simulation was successful, False otherwise
+        """
+        return simulation_result.get("success", False) and simulation_result.get("status", False)
+    
+    def get_simulation_url(self, simulation_result: Dict[str, Any]) -> Optional[str]:
+        """Get URL to view the simulation in Tenderly dashboard.
+        
+        Args:
+            simulation_result: Result from simulate_transaction containing simulation_id
+            
+        Returns:
+            Optional[str]: URL to view the simulation, or None if not available
+        """
+        if not hasattr(self, 'tenderly') or not self.tenderly:
             return None
-        return simulation_result.get("transaction", {}).get("error_message")
+            
+        sim_id = simulation_result.get("simulation_id")
+        if not sim_id:
+            return None
+            
+        return (
+            f"https://dashboard.tenderly.co/{self.tenderly.account_slug}/"
+            f"{self.tenderly.project_slug}/simulator/{sim_id}"
+        )
