@@ -13,4 +13,4 @@ requests
 pytest
 pytest-asyncio
 httpx
-tenderly
+
