@@ -790,3 +790,413 @@ async function handleUserDecision(request, sender) {
     return { success: false, error: error.message };
   }
 }
+
+// Utility functions
+function generateCacheKey(data) {
+  return JSON.stringify({
+    to: data.to,
+    value: data.value,
+    data: data.data,
+    origin: data.origin
+  });
+}
+
+function getFromCache(cache, key) {
+  const item = cache.get(key);
+  if (item && Date.now() - item.timestamp < CACHE_TTL) {
+    return item.data;
+  }
+  if (item) {
+    cache.delete(key);
+  }
+  return null;
+}
+
+function setCache(cache, key, data) {
+  // Prevent cache from growing too large
+  if (cache.size >= MAX_CACHE_SIZE) {
+    const oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+  }
+  
+  cache.set(key, {
+    data,
+    timestamp: Date.now()
+  });
+}
+
+function cleanupPendingTransactions() {
+  const now = Date.now();
+  const expired = [];
+  
+  for (const [id, tx] of pendingTransactions) {
+    if (now - tx.timestamp > CONFIG.USER_DECISION_TIMEOUT) {
+      expired.push(id);
+    }
+  }
+  
+  expired.forEach(id => {
+    pendingTransactions.delete(id);
+    logDebug(`Cleaned up expired transaction: ${id}`);
+  });
+  
+  // Also enforce max pending transactions
+  if (pendingTransactions.size > CONFIG.MAX_PENDING_TRANSACTIONS) {
+    const sortedTxs = Array.from(pendingTransactions.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+    
+    const toRemove = sortedTxs.slice(0, sortedTxs.length - CONFIG.MAX_PENDING_TRANSACTIONS);
+    toRemove.forEach(([id]) => {
+      pendingTransactions.delete(id);
+      logDebug(`Cleaned up old transaction due to limit: ${id}`);
+    });
+  }
+}
+
+async function sendMessageToTab(tabId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, { frameId: 0 }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else if (!response) {
+        reject(new Error('No response from tab'));
+      } else {
+        resolve(response);
+      }
+    });
+  });
+}
+
+// Initialize background script
+async function initialize() {
+  try {
+    // Load user settings
+    const stored = await chrome.storage.local.get(['userSettings']);
+    if (stored.userSettings) {
+      Object.assign(userSettings, stored.userSettings);
+    }
+    
+    // Set up periodic cleanup
+    setInterval(cleanupPendingTransactions, 60000); // Every minute
+    
+    logInfo('✅ Web3 Guardian background script initialized');
+    
+  } catch (error) {
+    logError('Failed to initialize background script:', error);
+  }
+}
+
+// Start initialization
+initialize();
+
+// API Integration Functions
+async function getContractFromEtherscan(address) {
+  const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || 'YourApiKeyToken';
+  const ETHERSCAN_BASE_URL = 'https://api.etherscan.io/api';
+  
+  try {
+    // Get contract source code and ABI
+    const sourceResponse = await fetch(
+      `${ETHERSCAN_BASE_URL}?module=contract&action=getsourcecode&address=${address}&apikey=${ETHERSCAN_API_KEY}`
+    );
+    const sourceData = await sourceResponse.json();
+    
+    // Get contract info
+    const contractInfo = {
+      address,
+      isContract: sourceData.result?.[0]?.SourceCode !== '',
+      isVerified: sourceData.result?.[0]?.SourceCode !== '',
+      contractName: sourceData.result?.[0]?.ContractName || null,
+      compilerVersion: sourceData.result?.[0]?.CompilerVersion || null,
+      abi: sourceData.result?.[0]?.ABI || null,
+      sourceCode: sourceData.result?.[0]?.SourceCode || null,
+      constructorArguments: sourceData.result?.[0]?.ConstructorArguments || null
+    };
+    
+    // If it's a contract, get additional transaction history
+    if (contractInfo.isContract) {
+      const txResponse = await fetch(
+        `${ETHERSCAN_BASE_URL}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=10&sort=desc&apikey=${ETHERSCAN_API_KEY}`
+      );
+      const txData = await txResponse.json();
+      contractInfo.recentTransactions = txData.result || [];
+    }
+    
+    return contractInfo;
+    
+  } catch (error) {
+    logError('Etherscan API error:', error);
+    return {
+      address,
+      isContract: false,
+      isVerified: false,
+      error: error.message
+    };
+  }
+}
+
+async function getAccountInfoFromAlchemy(address) {
+  const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || 'demo';
+  const ALCHEMY_BASE_URL = `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`;
+  
+  try {
+    // Get account balance
+    const balanceResponse = await fetch(ALCHEMY_BASE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_getBalance',
+        params: [address, 'latest']
+      })
+    });
+    const balanceData = await balanceResponse.json();
+    
+    // Get transaction count
+    const txCountResponse = await fetch(ALCHEMY_BASE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'eth_getTransactionCount',
+        params: [address, 'latest']
+      })
+    });
+    const txCountData = await txCountResponse.json();
+    
+    return {
+      address,
+      balance: balanceData.result || '0x0',
+      transactionCount: txCountData.result || '0x0',
+      balanceEth: parseInt(balanceData.result || '0x0', 16) / 1e18
+    };
+    
+  } catch (error) {
+    logError('Alchemy API error:', error);
+    return {
+      address,
+      balance: '0x0',
+      transactionCount: '0x0',
+      error: error.message
+    };
+  }
+}
+
+async function sendToBackend(data) {
+  try {
+    const response = await fetch(`${CONFIG.BACKEND_URL}/api/analyze`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        tx_data: data,
+        network: 'ethereum',
+        user_address: data.accounts?.[0] || 'unknown',
+        timestamp: new Date().toISOString()
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Backend API error: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    return result;
+    
+  } catch (error) {
+    logError('Backend API error:', error);
+    return {
+      success: false,
+      error: error.message,
+      recommendations: ['Backend analysis unavailable - using local analysis only']
+    };
+  }
+}
+
+// Comprehensive Analysis Functions
+async function analyzeDAppLegitimacy(dAppInfo) {
+  try {
+    const analysis = {
+      riskLevel: 'low',
+      riskFactors: [],
+      recommendations: [],
+      trustScore: 100,
+      isVerified: false
+    };
+    
+    // Domain analysis
+    const domain = dAppInfo.domain;
+    
+    // Check for suspicious domain patterns
+    const suspiciousPatterns = [
+      /[0-9]/, // Numbers in domain
+      /[^a-z0-9.-]/, // Special characters
+      /.{30,}/, // Very long domains
+      /.*metamask.*/, // Impersonation attempts
+      /.*uniswap.*/, // Impersonation attempts
+      /.*opensea.*/ // Impersonation attempts
+    ];
+    
+    if (suspiciousPatterns.some(pattern => pattern.test(domain))) {
+      analysis.riskFactors.push('suspicious_domain');
+      analysis.riskLevel = 'medium';
+      analysis.trustScore -= 30;
+    }
+    
+    // Check for code obfuscation
+    if (dAppInfo.hasObfuscatedCode) {
+      analysis.riskFactors.push('obfuscated_code');
+      analysis.riskLevel = 'high';
+      analysis.trustScore -= 50;
+      analysis.recommendations.push('⚠️ Code obfuscation detected - proceed with extreme caution');
+    }
+    
+    // Check external domains
+    if (dAppInfo.externalDomains?.length > 5) {
+      analysis.riskFactors.push('many_external_domains');
+      analysis.riskLevel = Math.max(analysis.riskLevel, 'medium');
+      analysis.trustScore -= 20;
+    }
+    
+    // Check for HTTPS
+    if (!dAppInfo.url.startsWith('https://')) {
+      analysis.riskFactors.push('no_https');
+      analysis.riskLevel = 'high';
+      analysis.trustScore -= 40;
+      analysis.recommendations.push('🔒 Site is not using HTTPS - data may not be secure');
+    }
+    
+    // Generate recommendations based on risk level
+    switch (analysis.riskLevel) {
+      case 'low':
+        analysis.recommendations.unshift('✅ dApp appears legitimate and safe to use');
+        break;
+      case 'medium':
+        analysis.recommendations.unshift('⚠️ Some suspicious indicators detected - review carefully');
+        break;
+      case 'high':
+        analysis.recommendations.unshift('🚨 HIGH RISK: Multiple security concerns detected');
+        break;
+    }
+    
+    return analysis;
+    
+  } catch (error) {
+    logError('dApp analysis failed:', error);
+    return {
+      riskLevel: 'unknown',
+      riskFactors: ['analysis_failed'],
+      recommendations: ['Unable to analyze dApp - exercise caution'],
+      trustScore: 0,
+      isVerified: false
+    };
+  }
+}
+
+async function analyzeFunctionCall(data, contractInfo) {
+  if (!data || data === '0x' || !contractInfo?.abi) {
+    return null;
+  }
+  
+  try {
+    // Extract function selector (first 4 bytes)
+    const selector = data.slice(0, 10);
+    
+    // Parse ABI to find matching function
+    let abi = [];
+    try {
+      abi = JSON.parse(contractInfo.abi);
+    } catch (e) {
+      return { selector, error: 'Invalid ABI' };
+    }
+    
+    // Find function by selector
+    const functions = abi.filter(item => item.type === 'function');
+    let matchedFunction = null;
+    
+    for (const func of functions) {
+      // Calculate function selector (simplified)
+      const signature = `${func.name}(${func.inputs.map(input => input.type).join(',')})`;
+      // In a real implementation, you'd use keccak256 hash
+      if (signature.includes('transfer') && selector.includes('a9059cbb')) {
+        matchedFunction = func;
+        break;
+      }
+      if (signature.includes('approve') && selector.includes('095ea7b3')) {
+        matchedFunction = func;
+        break;
+      }
+    }
+    
+    return {
+      selector,
+      functionName: matchedFunction?.name || 'unknown',
+      signature: matchedFunction ? `${matchedFunction.name}(${matchedFunction.inputs.map(input => input.type).join(',')})` : null,
+      inputs: matchedFunction?.inputs || [],
+      isRisky: ['approve', 'transferFrom', 'setApprovalForAll'].includes(matchedFunction?.name)
+    };
+    
+  } catch (error) {
+    return {
+      selector: data.slice(0, 10),
+      error: error.message
+    };
+  }
+}
+
+async function analyzeSigningMessage(data) {
+  try {
+    const analysis = {
+      riskLevel: 'low',
+      riskFactors: [],
+      recommendations: []
+    };
+    
+    const { method, message } = data;
+    
+    // Analyze different signing methods
+    switch (method) {
+      case 'personal_sign':
+        analysis.recommendations.push('📝 Personal message signing - verify the message content');
+        if (typeof message === 'string' && message.length > 1000) {
+          analysis.riskLevel = 'medium';
+          analysis.riskFactors.push('long_message');
+          analysis.recommendations.push('⚠️ Very long message - review carefully');
+        }
+        break;
+        
+      case 'eth_signTypedData_v4':
+        analysis.riskLevel = 'medium';
+        analysis.recommendations.push('📋 Structured data signing - review all fields carefully');
+        
+        try {
+          const typedData = JSON.parse(message);
+          if (typedData.primaryType === 'Permit') {
+            analysis.riskLevel = 'high';
+            analysis.riskFactors.push('permit_signature');
+            analysis.recommendations.push('🚨 Token permit signature - this grants spending permissions!');
+          }
+        } catch (e) {
+          analysis.riskFactors.push('malformed_typed_data');
+        }
+        break;
+        
+      default:
+        analysis.riskLevel = 'medium';
+        analysis.recommendations.push('❓ Unknown signing method - exercise caution');
+    }
+    
+    return analysis;
+    
+  } catch (error) {
+    return {
+      riskLevel: 'unknown',
+      riskFactors: ['analysis_failed'],
+      recommendations: ['Unable to analyze signing request'],
+      error: error.message
+    };
+  }
+}
