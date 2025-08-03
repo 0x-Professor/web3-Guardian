@@ -15,7 +15,7 @@ const analysisCache = new Map();
 
 // Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Background received message:', request.type);
+  console.log('Background received message:', request.type, 'from:', sender.tab?.url || 'unknown');
   
   switch (request.type) {
     case 'ANALYZE_TRANSACTION':
@@ -31,26 +31,53 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: true });
       return true;
       
+    case 'PONG':
+      console.log('Received PONG from content script');
+      sendResponse({ success: true });
+      return true;
+      
     case 'GET_TRANSACTION_STATUS':
-      // Forward to content script
+      // First, check if we can talk to the content script
       chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-        if (tabs[0]) {
-          chrome.tabs.sendMessage(tabs[0].id, 
-            { type: 'GET_TRANSACTION_STATUS' },
-            {}, 
-            (response) => {
-              if (chrome.runtime.lastError) {
-                console.error('Error getting transaction status:', chrome.runtime.lastError);
-                sendResponse({ success: false, error: chrome.runtime.lastError });
-              } else {
-                sendResponse(response || { success: false, error: 'No response from content script' });
-              }
-            }
-          );
-        } else {
+        if (!tabs[0] || !tabs[0].id) {
+          console.error('No active tab found');
           sendResponse({ success: false, error: 'No active tab found' });
+          return;
         }
+        
+        const tabId = tabs[0].id;
+        
+        // First try to ping the content script
+        chrome.tabs.sendMessage(
+          tabId,
+          { type: 'PING' },
+          { frameId: 0 }, // Main frame only
+          (response) => {
+            if (chrome.runtime.lastError) {
+              console.error('Content script not responding:', chrome.runtime.lastError);
+              // Try to inject the content script
+              chrome.scripting.executeScript({
+                target: { tabId },
+                files: ['content.bundle.js']
+              }).then(() => {
+                console.log('Content script injected programmatically');
+                // Now try to get the transaction status again
+                getTransactionStatus(tabId, sendResponse);
+              }).catch(err => {
+                console.error('Failed to inject content script:', err);
+                sendResponse({
+                  success: false,
+                  error: 'Failed to inject content script: ' + err.message
+                });
+              });
+            } else {
+              console.log('Content script is responsive, getting transaction status');
+              getTransactionStatus(tabId, sendResponse);
+            }
+          }
+        );
       });
+      
       return true; // Keep the message channel open for async response
       
     default:
@@ -59,6 +86,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return false;
   }
 });
+
+// Helper function to get transaction status from content script
+function getTransactionStatus(tabId, sendResponse) {
+  chrome.tabs.sendMessage(
+    tabId,
+    { type: 'GET_TRANSACTION_STATUS' },
+    { frameId: 0 }, // Main frame only
+    (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error getting transaction status:', chrome.runtime.lastError);
+        sendResponse({
+          success: false,
+          error: 'Failed to get transaction status: ' + chrome.runtime.lastError.message
+        });
+      } else if (response) {
+        sendResponse(response);
+      } else {
+        sendResponse({
+          success: false,
+          error: 'No response from content script'
+        });
+      }
+    }
+  );
+}
 
 // Handle transaction analysis request
 async function handleAnalyzeTransaction(txData, sendResponse) {
