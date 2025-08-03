@@ -506,6 +506,39 @@ function detectSupportedNetworks() {
   return networks;
 }
 
+// Detect default network from page content
+function detectDefaultNetwork() {
+  const content = document.body.innerText.toLowerCase();
+  const scriptContent = Array.from(document.scripts)
+    .map(script => script.textContent || '')
+    .join(' ')
+    .toLowerCase();
+  
+  // Check for network indicators in order of priority
+  if (content.includes('mainnet') || scriptContent.includes('mainnet')) return 'Ethereum Mainnet';
+  if (content.includes('polygon') || scriptContent.includes('polygon')) return 'Polygon';
+  if (content.includes('arbitrum') || scriptContent.includes('arbitrum')) return 'Arbitrum';
+  if (content.includes('optimism') || scriptContent.includes('optimism')) return 'Optimism';
+  if (content.includes('bsc') || scriptContent.includes('bsc')) return 'BSC';
+  if (content.includes('avalanche') || scriptContent.includes('avalanche')) return 'Avalanche';
+  
+  // Check current chain if available
+  if (window.ethereum?.chainId) {
+    const chainId = parseInt(window.ethereum.chainId, 16);
+    switch (chainId) {
+      case 1: return 'Ethereum Mainnet';
+      case 137: return 'Polygon';
+      case 42161: return 'Arbitrum';
+      case 10: return 'Optimism';
+      case 56: return 'BSC';
+      case 43114: return 'Avalanche';
+      default: return `Chain ${chainId}`;
+    }
+  }
+  
+  return 'Unknown';
+}
+
 // Extract token contracts
 function extractTokenContracts() {
   const tokens = [];
