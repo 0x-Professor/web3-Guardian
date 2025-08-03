@@ -40,6 +40,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // Handle transaction analysis request
 async function handleAnalyzeTransaction(txData, sendResponse) {
   try {
+    console.log('Analyzing transaction:', JSON.stringify(txData, null, 2));
+    
     // Check cache first
     const cacheKey = generateCacheKey(txData);
     const cachedResult = analysisCache.get(cacheKey);
@@ -50,34 +52,55 @@ async function handleAnalyzeTransaction(txData, sendResponse) {
       return;
     }
     
-    // In a real implementation, this would send the transaction to your backend
-    // For now, we'll analyze the transaction locally
-    const result = await analyzeTransactionLocally(txData);
-    
-    // Cache the result
-    if (analysisCache.size >= CONFIG.MAX_CACHE_ITEMS) {
-      // Remove oldest item if cache is full
-      const oldestKey = analysisCache.keys().next().value;
-      analysisCache.delete(oldestKey);
+    // Validate transaction data
+    if (!txData || typeof txData !== 'object') {
+      throw new Error('Invalid transaction data');
     }
     
-    analysisCache.set(cacheKey, result);
+    let result;
     
-    // Schedule cache invalidation
-    setTimeout(() => {
-      analysisCache.delete(cacheKey);
-    }, CONFIG.CACHE_TTL);
+    // Try local analysis first
+    try {
+      result = await analyzeTransactionLocally(txData);
+      console.log('Local analysis result:', result);
+    } catch (localError) {
+      console.error('Local analysis failed, trying backend...', localError);
+      // In a real implementation, you would try the backend here
+      // For now, we'll rethrow the local error
+      throw new Error(`Analysis failed: ${localError.message}`);
+    }
+    
+    // Cache the result if successful
+    if (result && result.success !== false) {
+      if (analysisCache.size >= CONFIG.MAX_CACHE_ITEMS) {
+        // Remove oldest item if cache is full
+        const oldestKey = analysisCache.keys().next().value;
+        analysisCache.delete(oldestKey);
+      }
+      
+      analysisCache.set(cacheKey, result);
+      
+      // Schedule cache invalidation
+      setTimeout(() => {
+        analysisCache.delete(cacheKey);
+      }, CONFIG.CACHE_TTL);
+    }
     
     sendResponse(result);
     
   } catch (error) {
-    console.error('Error analyzing transaction:', error);
-    sendResponse({
+    console.error('Error in handleAnalyzeTransaction:', error);
+    const errorResponse = {
       success: false,
-      error: error.message,
-      riskLevel: 'unknown',
-      recommendations: ['Failed to analyze transaction']
-    });
+      error: error.message || 'Unknown error occurred',
+      riskLevel: 'error',
+      recommendations: [
+        'Failed to analyze transaction',
+        error.message || 'Please try again later'
+      ]
+    };
+    console.error('Sending error response:', errorResponse);
+    sendResponse(errorResponse);
   }
 }
 

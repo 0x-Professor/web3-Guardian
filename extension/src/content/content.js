@@ -94,22 +94,56 @@ function setupWeb3Interception() {
       console.log('Intercepted transaction:', fullTxData);
       
       // Send to background for analysis
-      const response = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({
-          type: 'ANALYZE_TRANSACTION',
-          data: fullTxData
-        }, resolve);
-      });
-      
-      // Show the popup with transaction details
-      chrome.runtime.sendMessage({
-        type: 'SHOW_TRANSACTION',
-        data: {
-          ...fullTxData,
-          riskLevel: response.riskLevel,
-          recommendations: response.recommendations || []
+      let response;
+      try {
+        response = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'ANALYZE_TRANSACTION',
+              data: fullTxData
+            },
+            (result) => {
+              if (chrome.runtime.lastError) {
+                console.error('Error in message handler:', chrome.runtime.lastError);
+                reject(chrome.runtime.lastError);
+              } else {
+                resolve(result);
+              }
+            }
+          );
+        });
+        
+        console.log('Analysis response:', response);
+        
+        if (!response || response.error) {
+          throw new Error(response?.error || 'Invalid response from background script');
         }
-      });
+        
+        // Show the popup with transaction details
+        chrome.runtime.sendMessage({
+          type: 'SHOW_TRANSACTION',
+          data: {
+            ...fullTxData,
+            riskLevel: response.riskLevel || 'unknown',
+            recommendations: response.recommendations || ['Unable to analyze transaction']
+          }
+        });
+        
+      } catch (error) {
+        console.error('Error during transaction analysis:', error);
+        // Show error in popup
+        chrome.runtime.sendMessage({
+          type: 'SHOW_TRANSACTION',
+          data: {
+            ...fullTxData,
+            riskLevel: 'error',
+            recommendations: [
+              'Error analyzing transaction',
+              error.message || 'Unknown error occurred'
+            ]
+          }
+        });
+      }
       
       // Wait for user response
       return new Promise((resolve, reject) => {
