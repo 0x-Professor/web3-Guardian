@@ -336,26 +336,508 @@ async function handleSigningRequest(args, requestId) {
   }
 }
 
-// Analyze current dApp
+// Analyze current dApp with comprehensive security data extraction
 async function analyzeDApp() {
   const dAppInfo = {
+    // Basic identification
     url: window.location.href,
     domain: window.location.hostname,
     title: document.title,
     description: document.querySelector('meta[name="description"]')?.content || '',
     favicon: document.querySelector('link[rel="icon"]')?.href || document.querySelector('link[rel="shortcut icon"]')?.href || '',
-    scripts: Array.from(document.scripts).map(script => script.src).filter(Boolean),
-    // Check for common Web3 libraries
+    
+    // Web3 provider detection
     hasWeb3: !!window.Web3,
     hasEthers: !!window.ethers,
     hasWagmi: !!window.wagmi,
-    // Check for suspicious patterns
+    hasRainbowKit: !!window.RainbowKit,
+    hasWalletConnect: !!window.WalletConnect,
+    providerType: detectProviderType(),
+    
+    // Smart contract addresses extraction
+    contractAddresses: extractContractAddresses(),
+    
+    // Network information
+    supportedNetworks: detectSupportedNetworks(),
+    defaultNetwork: detectDefaultNetwork(),
+    
+    // Token information
+    tokenContracts: extractTokenContracts(),
+    nftContracts: extractNFTContracts(),
+    
+    // Security indicators
     hasObfuscatedCode: checkForObfuscation(),
+    usesHttps: window.location.protocol === 'https:',
+    hasContentSecurityPolicy: checkCSPHeaders(),
+    hasSubResourceIntegrity: checkSRITags(),
+    
+    // External domains and resources
     externalDomains: getExternalDomains(),
+    externalScripts: getExternalScripts(),
+    iframes: getIframeInfo(),
+    
+    // dApp metadata
+    manifestInfo: extractManifestInfo(),
+    socialLinks: extractSocialLinks(),
+    githubInfo: extractGithubInfo(),
+    
+    // Frontend framework detection
+    framework: detectFramework(),
+    buildTool: detectBuildTool(),
+    
+    // Security flags
+    suspiciousPatterns: detectSuspiciousPatterns(),
+    trustIndicators: detectTrustIndicators(),
+    
+    // Wallet interaction patterns
+    walletMethods: detectWalletMethods(),
+    permissionsRequested: [],
+    
+    // UI/UX analysis
+    uiComplexity: analyzeUIComplexity(),
+    hasTransactionPreview: checkTransactionPreview(),
+    hasGasEstimation: checkGasEstimation(),
+    
     timestamp: Date.now()
   };
   
   return dAppInfo;
+}
+
+// Enhanced contract address extraction
+function extractContractAddresses() {
+  const addresses = new Set();
+  const addressRegex = /0x[a-fA-F0-9]{40}/g;
+  
+  // Search in page content
+  const pageText = document.body.innerText;
+  const matches = pageText.match(addressRegex);
+  if (matches) {
+    matches.forEach(addr => addresses.add(addr.toLowerCase()));
+  }
+  
+  // Search in script contents
+  Array.from(document.scripts).forEach(script => {
+    if (script.textContent) {
+      const scriptMatches = script.textContent.match(addressRegex);
+      if (scriptMatches) {
+        scriptMatches.forEach(addr => addresses.add(addr.toLowerCase()));
+      }
+    }
+  });
+  
+  // Search in data attributes
+  document.querySelectorAll('[data-*]').forEach(el => {
+    Array.from(el.attributes).forEach(attr => {
+      if (attr.value && attr.value.match(addressRegex)) {
+        const attrMatches = attr.value.match(addressRegex);
+        if (attrMatches) {
+          attrMatches.forEach(addr => addresses.add(addr.toLowerCase()));
+        }
+      }
+    });
+  });
+  
+  // Common contract address locations
+  const commonSelectors = [
+    '[class*="contract"]',
+    '[class*="address"]',
+    '[id*="contract"]',
+    '[id*="address"]',
+    '[data-contract]',
+    '[data-address]'
+  ];
+  
+  commonSelectors.forEach(selector => {
+    document.querySelectorAll(selector).forEach(el => {
+      const text = el.textContent || el.value || el.getAttribute('data-contract') || el.getAttribute('data-address');
+      if (text) {
+        const selectorMatches = text.match(addressRegex);
+        if (selectorMatches) {
+          selectorMatches.forEach(addr => addresses.add(addr.toLowerCase()));
+        }
+      }
+    });
+  });
+  
+  return Array.from(addresses);
+}
+
+// Detect Web3 provider type
+function detectProviderType() {
+  if (window.ethereum?.isMetaMask) return 'MetaMask';
+  if (window.ethereum?.isCoinbaseWallet) return 'Coinbase Wallet';
+  if (window.ethereum?.isRabby) return 'Rabby';
+  if (window.ethereum?.isTrust) return 'Trust Wallet';
+  if (window.ethereum?.isPhantom) return 'Phantom';
+  if (window.ethereum) return 'Generic Ethereum';
+  return null;
+}
+
+// Detect supported networks
+function detectSupportedNetworks() {
+  const networks = [];
+  const networkPatterns = [
+    { name: 'Ethereum', patterns: ['ethereum', 'mainnet', 'eth'] },
+    { name: 'Polygon', patterns: ['polygon', 'matic'] },
+    { name: 'BSC', patterns: ['bsc', 'binance'] },
+    { name: 'Arbitrum', patterns: ['arbitrum', 'arb'] },
+    { name: 'Optimism', patterns: ['optimism', 'op'] },
+    { name: 'Avalanche', patterns: ['avalanche', 'avax'] },
+    { name: 'Fantom', patterns: ['fantom', 'ftm'] },
+    { name: 'Solana', patterns: ['solana', 'sol'] }
+  ];
+  
+  const pageContent = document.body.innerText.toLowerCase();
+  const scriptContent = Array.from(document.scripts)
+    .map(script => script.textContent || '')
+    .join(' ')
+    .toLowerCase();
+  
+  networkPatterns.forEach(network => {
+    const found = network.patterns.some(pattern => 
+      pageContent.includes(pattern) || scriptContent.includes(pattern)
+    );
+    if (found) {
+      networks.push(network.name);
+    }
+  });
+  
+  return networks;
+}
+
+// Extract token contracts
+function extractTokenContracts() {
+  const tokens = [];
+  
+  // Look for common token patterns
+  const tokenSelectors = [
+    '[class*="token"]',
+    '[data-token]',
+    '[data-symbol]',
+    '.currency',
+    '.asset'
+  ];
+  
+  tokenSelectors.forEach(selector => {
+    document.querySelectorAll(selector).forEach(el => {
+      const symbol = el.textContent?.match(/[A-Z]{2,6}/) || 
+                    el.getAttribute('data-symbol') ||
+                    el.getAttribute('data-token');
+      
+      const address = el.getAttribute('data-address') ||
+                     el.textContent?.match(/0x[a-fA-F0-9]{40}/);
+      
+      if (symbol || address) {
+        tokens.push({
+          symbol: Array.isArray(symbol) ? symbol[0] : symbol,
+          address: Array.isArray(address) ? address[0] : address,
+          element: el.tagName
+        });
+      }
+    });
+  });
+  
+  return tokens;
+}
+
+// Extract NFT contracts
+function extractNFTContracts() {
+  const nfts = [];
+  const nftKeywords = ['nft', 'erc721', 'erc1155', 'opensea', 'collection'];
+  
+  nftKeywords.forEach(keyword => {
+    document.querySelectorAll(`[class*="${keyword}"], [id*="${keyword}"]`).forEach(el => {
+      const address = el.textContent?.match(/0x[a-fA-F0-9]{40}/);
+      if (address) {
+        nfts.push({
+          address: address[0],
+          type: keyword,
+          element: el.tagName
+        });
+      }
+    });
+  });
+  
+  return nfts;
+}
+
+// Check Content Security Policy
+function checkCSPHeaders() {
+  const cspMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+  return !!cspMeta;
+}
+
+// Check Subresource Integrity
+function checkSRITags() {
+  const scriptsWithSRI = document.querySelectorAll('script[integrity]');
+  const linksWithSRI = document.querySelectorAll('link[integrity]');
+  return scriptsWithSRI.length > 0 || linksWithSRI.length > 0;
+}
+
+// Get external scripts with security analysis
+function getExternalScripts() {
+  const scripts = [];
+  const currentDomain = window.location.hostname;
+  
+  Array.from(document.scripts).forEach(script => {
+    if (script.src) {
+      try {
+        const url = new URL(script.src);
+        if (url.hostname !== currentDomain) {
+          scripts.push({
+            src: script.src,
+            domain: url.hostname,
+            hasIntegrity: !!script.integrity,
+            async: script.async,
+            defer: script.defer,
+            crossOrigin: script.crossOrigin
+          });
+        }
+      } catch (e) {
+        scripts.push({
+          src: script.src,
+          domain: 'invalid-url',
+          hasIntegrity: false
+        });
+      }
+    }
+  });
+  
+  return scripts;
+}
+
+// Get iframe information
+function getIframeInfo() {
+  const iframes = [];
+  
+  document.querySelectorAll('iframe').forEach(iframe => {
+    try {
+      const src = iframe.src;
+      if (src) {
+        const url = new URL(src);
+        iframes.push({
+          src: src,
+          domain: url.hostname,
+          sandbox: iframe.sandbox.toString(),
+          allow: iframe.allow
+        });
+      }
+    } catch (e) {
+      iframes.push({
+        src: iframe.src,
+        domain: 'invalid-url',
+        sandbox: iframe.sandbox?.toString() || '',
+        allow: iframe.allow || ''
+      });
+    }
+  });
+  
+  return iframes;
+}
+
+// Extract manifest information
+function extractManifestInfo() {
+  const manifest = document.querySelector('link[rel="manifest"]');
+  if (!manifest) return null;
+  
+  return {
+    href: manifest.href,
+    crossOrigin: manifest.crossOrigin
+  };
+}
+
+// Extract social links
+function extractSocialLinks() {
+  const socialLinks = {};
+  const socialPatterns = {
+    twitter: /twitter\.com|x\.com/,
+    github: /github\.com/,
+    discord: /discord\.(gg|com)/,
+    telegram: /t\.me|telegram\.org/,
+    medium: /medium\.com/,
+    reddit: /reddit\.com/
+  };
+  
+  document.querySelectorAll('a[href]').forEach(link => {
+    const href = link.href;
+    Object.entries(socialPatterns).forEach(([platform, pattern]) => {
+      if (pattern.test(href)) {
+        if (!socialLinks[platform]) {
+          socialLinks[platform] = [];
+        }
+        socialLinks[platform].push(href);
+      }
+    });
+  });
+  
+  return socialLinks;
+}
+
+// Extract GitHub information
+function extractGithubInfo() {
+  const githubLinks = [];
+  document.querySelectorAll('a[href*="github.com"]').forEach(link => {
+    const match = link.href.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+    if (match) {
+      githubLinks.push({
+        url: link.href,
+        owner: match[1],
+        repo: match[2]
+      });
+    }
+  });
+  
+  return githubLinks;
+}
+
+// Detect frontend framework
+function detectFramework() {
+  if (window.React || document.querySelector('[data-reactroot]')) return 'React';
+  if (window.Vue || document.querySelector('[data-v-]')) return 'Vue.js';
+  if (window.angular || document.querySelector('[ng-app]')) return 'Angular';
+  if (document.querySelector('[data-svelte]')) return 'Svelte';
+  if (window.Ember) return 'Ember.js';
+  return 'Unknown';
+}
+
+// Detect build tool
+function detectBuildTool() {
+  const scripts = Array.from(document.scripts).map(s => s.src).join('');
+  if (scripts.includes('webpack')) return 'Webpack';
+  if (scripts.includes('vite')) return 'Vite';
+  if (scripts.includes('parcel')) return 'Parcel';
+  if (scripts.includes('rollup')) return 'Rollup';
+  return 'Unknown';
+}
+
+// Detect suspicious patterns
+function detectSuspiciousPatterns() {
+  const patterns = [];
+  const content = document.body.innerText.toLowerCase();
+  
+  // Suspicious phrases
+  const suspiciousPhrases = [
+    'send eth to claim',
+    'limited time offer',
+    'urgent action required',
+    'claim free tokens',
+    'airdrop ending soon',
+    'verify your wallet',
+    'connect to claim',
+    'approve transaction to receive'
+  ];
+  
+  suspiciousPhrases.forEach(phrase => {
+    if (content.includes(phrase)) {
+      patterns.push(`suspicious_phrase_${phrase.replace(/\s+/g, '_')}`);
+    }
+  });
+  
+  // Check for fake domain indicators
+  const domain = window.location.hostname;
+  if (domain.includes('metamask') || domain.includes('uniswap') || domain.includes('opensea')) {
+    if (!domain.endsWith('.app') && !domain.endsWith('.com') && !domain.endsWith('.org')) {
+      patterns.push('potential_domain_spoofing');
+    }
+  }
+  
+  return patterns;
+}
+
+// Detect trust indicators
+function detectTrustIndicators() {
+  const indicators = [];
+  
+  // SSL/HTTPS
+  if (window.location.protocol === 'https:') {
+    indicators.push('https_enabled');
+  }
+  
+  // Verified contracts (look for verification badges)
+  if (document.querySelector('[class*="verified"], [class*="badge"]')) {
+    indicators.push('verification_badges');
+  }
+  
+  // Audit information
+  const content = document.body.innerText.toLowerCase();
+  const auditKeywords = ['audit', 'certik', 'consensys', 'trail of bits', 'openzeppelin'];
+  auditKeywords.forEach(keyword => {
+    if (content.includes(keyword)) {
+      indicators.push(`audit_${keyword.replace(/\s+/g, '_')}`);
+    }
+  });
+  
+  return indicators;
+}
+
+// Detect wallet interaction methods
+function detectWalletMethods() {
+  const methods = [];
+  const scriptContent = Array.from(document.scripts)
+    .map(script => script.textContent || '')
+    .join(' ');
+  
+  const walletMethods = [
+    'eth_requestAccounts',
+    'eth_sendTransaction',
+    'eth_signTransaction',
+    'personal_sign',
+    'eth_signTypedData',
+    'wallet_addEthereumChain',
+    'wallet_switchEthereumChain'
+  ];
+  
+  walletMethods.forEach(method => {
+    if (scriptContent.includes(method)) {
+      methods.push(method);
+    }
+  });
+  
+  return methods;
+}
+
+// Analyze UI complexity
+function analyzeUIComplexity() {
+  const complexity = {
+    totalElements: document.querySelectorAll('*').length,
+    forms: document.querySelectorAll('form').length,
+    inputs: document.querySelectorAll('input').length,
+    buttons: document.querySelectorAll('button').length,
+    modals: document.querySelectorAll('[class*="modal"], [class*="popup"]').length,
+    animations: document.querySelectorAll('[class*="animate"], [style*="animation"]').length
+  };
+  
+  return complexity;
+}
+
+// Check for transaction preview functionality
+function checkTransactionPreview() {
+  const previewSelectors = [
+    '[class*="preview"]',
+    '[class*="summary"]',
+    '[class*="review"]',
+    '[id*="preview"]',
+    '[data-testid*="preview"]'
+  ];
+  
+  return previewSelectors.some(selector => 
+    document.querySelector(selector) !== null
+  );
+}
+
+// Check for gas estimation
+function checkGasEstimation() {
+  const gasSelectors = [
+    '[class*="gas"]',
+    '[class*="fee"]',
+    '[id*="gas"]',
+    '[data-testid*="gas"]'
+  ];
+  
+  const content = document.body.innerText.toLowerCase();
+  return gasSelectors.some(selector => document.querySelector(selector) !== null) ||
+         content.includes('gas') || content.includes('gwei') || content.includes('fee');
 }
 
 // Legacy provider support
