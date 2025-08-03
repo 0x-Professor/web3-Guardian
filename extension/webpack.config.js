@@ -10,21 +10,18 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const SRC_DIR = path.resolve(__dirname, 'src');
 const BUILD_DIR = path.resolve(__dirname, 'dist');
 
+// Determine mode from environment or command line
+const isProduction = process.env.NODE_ENV === 'production' || process.argv.includes('--mode=production') || process.argv.includes('production');
+const mode = isProduction ? 'production' : 'development';
+
 // Ensure build directory exists
 if (!fs.existsSync(BUILD_DIR)) {
   fs.mkdirSync(BUILD_DIR, { recursive: true });
 }
 
-// Copy manifest file to dist
-const manifestSrc = path.resolve(SRC_DIR, 'manifest.json');
-const manifestDest = path.resolve(BUILD_DIR, 'manifest.json');
-if (fs.existsSync(manifestSrc) && !fs.existsSync(manifestDest)) {
-  fs.copyFileSync(manifestSrc, manifestDest);
-}
-
 module.exports = {
-  mode: 'development',
-  devtool: 'cheap-module-source-map',
+  mode: mode,
+  devtool: isProduction ? 'source-map' : 'cheap-module-source-map',
   entry: {
     popup: './src/popup/popup.js',
     content: './src/content/content.js',
@@ -43,7 +40,7 @@ module.exports = {
         use: {
           loader: 'babel-loader',
           options: {
-            presets: ['@babel/preset-env', '@babel/preset-react'],
+            presets: ['@babel/preset-env'],
           },
         },
       },
@@ -62,12 +59,13 @@ module.exports = {
       template: './src/popup/popup.html',
       filename: 'popup.html',
       chunks: ['popup'],
+      minify: isProduction,
     }),
     new webpack.DefinePlugin({
-      'process.env.ALCHEMY_API_KEY': JSON.stringify(process.env.ALCHEMY_API_KEY),
-      'process.env.ETHERSCAN_MAINNET_API_KEY': JSON.stringify(process.env.ETHERSCAN_MAINNET_API_KEY),
-      'process.env.BACKEND_URL': JSON.stringify(process.env.BACKEND_URL),
-      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
+      'process.env.ALCHEMY_API_KEY': JSON.stringify(process.env.ALCHEMY_API_KEY || ''),
+      'process.env.ETHERSCAN_MAINNET_API_KEY': JSON.stringify(process.env.ETHERSCAN_MAINNET_API_KEY || ''),
+      'process.env.BACKEND_URL': JSON.stringify(process.env.BACKEND_URL || 'http://localhost:8000'),
+      'process.env.NODE_ENV': JSON.stringify(mode)
     }),
     new CopyPlugin({
       patterns: [
@@ -88,5 +86,8 @@ module.exports = {
   ],
   resolve: {
     extensions: ['.js', '.jsx'],
+  },
+  optimization: {
+    minimize: isProduction,
   },
 };
