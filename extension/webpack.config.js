@@ -4,27 +4,30 @@ const CopyPlugin = require('copy-webpack-plugin');
 const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 const fs = require('fs');
 
-// Ensure extension directory exists
-const extensionDir = path.resolve(__dirname, 'extension');
-if (!fs.existsSync(extensionDir)) {
-  fs.mkdirSync(extensionDir, { recursive: true });
+// Set paths
+const SRC_DIR = path.resolve(__dirname, 'src');
+const BUILD_DIR = path.resolve(__dirname, 'dist');
+
+// Ensure build directory exists
+if (!fs.existsSync(BUILD_DIR)) {
+  fs.mkdirSync(BUILD_DIR, { recursive: true });
 }
 
-// Copy manifest file
-const manifestSrc = path.resolve(__dirname, 'extension', 'manifest.json');
-const manifestDest = path.resolve(extensionDir, 'manifest.json');
+// Copy manifest file to dist
+const manifestSrc = path.resolve(SRC_DIR, 'manifest.json');
+const manifestDest = path.resolve(BUILD_DIR, 'manifest.json');
 if (fs.existsSync(manifestSrc) && !fs.existsSync(manifestDest)) {
   fs.copyFileSync(manifestSrc, manifestDest);
 }
 
 module.exports = {
   entry: {
-    popup: './extension/src/popup/popup.js',
-    content: './extension/src/content/content.js',
-    background: './extension/src/background/background.js',
+    popup: './src/popup/popup.js',
+    content: './src/content/content.js',
+    background: './src/background/background.js',
   },
   output: {
-    path: path.resolve(__dirname, 'extension'),
+    path: BUILD_DIR,
     filename: '[name].bundle.js',
     clean: true,
   },
@@ -48,30 +51,26 @@ module.exports = {
   },
   plugins: [
     new CleanWebpackPlugin({
-      cleanStaleWebpackAssets: false, // Don't remove index.html
-      cleanOnceBeforeBuildPatterns: [
-        '**/*',
-        '!manifest.json', // Keep the manifest file
-        '!assets/**/*',  // Keep the assets directory
-      ],
+      cleanOnceBeforeBuildPatterns: ['**/*'],
+      cleanAfterEveryBuildPatterns: ['!manifest.json', '!assets/**/*'],
     }),
     new HtmlWebpackPlugin({
-      template: './extension/src/popup/popup.html',
+      template: './src/popup/popup.html',
       filename: 'popup.html',
       chunks: ['popup'],
     }),
     new CopyPlugin({
       patterns: [
         { 
-          from: 'extension/manifest.json',
-          to: 'manifest.json',
+          from: path.resolve(SRC_DIR, 'manifest.json'),
+          to: path.resolve(BUILD_DIR, 'manifest.json'),
           toType: 'file',
-          force: true, // Overwrite if exists
-          noErrorOnMissing: false
+          force: true,
+          noErrorOnMissing: true
         },
         { 
-          from: 'extension/src/assets',
-          to: 'assets',
+          from: path.resolve(SRC_DIR, 'assets'),
+          to: path.resolve(BUILD_DIR, 'assets'),
           noErrorOnMissing: true,
         },
       ],
