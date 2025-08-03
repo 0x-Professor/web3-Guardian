@@ -346,6 +346,12 @@ function handleGetSettings(request, sender) {
   };
 }
 
+async function handleUpdateSettings(request, sender) {
+  const { settings } = request.data || {};
+  
+  if (!settings || typeof settings !== 'object') {
+    return { success: false, error: 'Invalid settings data' };
+  }
   
   try {
     // Update settings
