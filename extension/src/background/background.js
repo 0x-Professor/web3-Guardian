@@ -30,8 +30,13 @@ console.log('🛡️ Web3 Guardian background script starting...');
 const messageHandlers = {
   // Content script messages
   CONTENT_SCRIPT_READY: handleContentScriptReady,
+  ANALYZE_WALLET_CONNECTION: handleAnalyzeWalletConnection,
   ANALYZE_TRANSACTION: handleAnalyzeTransaction,
-  SHOW_TRANSACTION_POPUP: handleShowTransactionPopup,
+  ANALYZE_CONTRACT_INTERACTION: handleAnalyzeContractInteraction,
+  ANALYZE_SIGNING_REQUEST: handleAnalyzeSigningRequest,
+  SHOW_APPROVAL_POPUP: handleShowApprovalPopup,
+  WALLET_CONNECTED: handleWalletConnected,
+  ACCOUNT_ACCESS: handleAccountAccess,
   ACCOUNTS_CHANGED: handleAccountsChanged,
   CHAIN_CHANGED: handleChainChanged,
   
@@ -39,6 +44,7 @@ const messageHandlers = {
   GET_TRANSACTION_STATUS: handleGetTransactionStatus,
   GET_PENDING_TRANSACTIONS: handleGetPendingTransactions,
   TRANSACTION_DECISION: handleTransactionDecision,
+  USER_DECISION: handleUserDecision,
   GET_SETTINGS: handleGetSettings,
   UPDATE_SETTINGS: handleUpdateSettings,
   
@@ -340,12 +346,6 @@ function handleGetSettings(request, sender) {
   };
 }
 
-async function handleUpdateSettings(request, sender) {
-  const { settings } = request.data || {};
-  
-  if (!settings || typeof settings !== 'object') {
-    return { success: false, error: 'Invalid settings data' };
-  }
   
   try {
     // Update settings
