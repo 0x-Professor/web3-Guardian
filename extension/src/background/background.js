@@ -19,6 +19,8 @@ const MAX_CACHE_SIZE = 1000;
 // Configuration
 const CONFIG = {
   BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:8000',
+  ETHERSCAN_API_KEY: process.env.ETHERSCAN_MAINNET_API_KEY || 'YourApiKeyToken',
+  ALCHEMY_API_KEY: process.env.ALCHEMY_API_KEY || 'demo',
   ANALYSIS_TIMEOUT: 15000,
   USER_DECISION_TIMEOUT: 300000, // 5 minutes
   MAX_PENDING_TRANSACTIONS: 10

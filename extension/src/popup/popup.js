@@ -352,12 +352,20 @@ async function initializePopup() {
         recommendations: [
           '🛡️ Web3 Guardian is active',
           'Extension will analyze transactions automatically',
-          tabInfo ? `Monitoring: ${new URL(tabInfo.url).hostname}` : 'Ready to protect your transactions'
+          tabInfo ? `Monitoring: ${tabInfo.title || new URL(tabInfo.url).hostname}` : 'Ready to protect your transactions'
         ],
         url: tabInfo?.url || 'Extension Ready',
+        domain: tabInfo ? new URL(tabInfo.url).hostname : 'Extension',
         hasProvider: false,
         isConnected: false,
-        accounts: []
+        accounts: [],
+        // Add real dApp information
+        dAppInfo: tabInfo ? {
+          title: tabInfo.title,
+          domain: new URL(tabInfo.url).hostname,
+          url: tabInfo.url,
+          favicon: tabInfo.favIconUrl
+        } : null
       }
     });
     
