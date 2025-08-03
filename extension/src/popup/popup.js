@@ -207,11 +207,18 @@ const UI = {
   },
   
   updateButtons(loading, hasTransaction) {
+    const buttonGroup = document.getElementById('button-group');
+    
     if (this.elements.approveBtn) {
       this.elements.approveBtn.disabled = loading || !hasTransaction;
     }
     if (this.elements.rejectBtn) {
       this.elements.rejectBtn.disabled = loading || !hasTransaction;
+    }
+    
+    // Show/hide button group based on transaction availability
+    if (buttonGroup) {
+      buttonGroup.classList.toggle('hidden', !hasTransaction || loading);
     }
   }
 };
@@ -256,13 +263,6 @@ async function initializePopup() {
     }
     
     // If no pending transactions, get current tab status
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab) {
-      throw new Error('No active tab found');
-    }
-    
-    const statusResponse = await sendMessage({ 
-      type: 'GET_TRANSACTION_STATUS'
     });
     
     if (statusResponse.success) {
