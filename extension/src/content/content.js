@@ -2,15 +2,143 @@
 // Intercepts and analyzes Web3 transactions
 
 console.log('Web3 Guardian content script loaded on', window.location.href);
-
-// Log when the script is injected
 console.log('Content script injected at:', new Date().toISOString());
 
-// Log if Web3 is detected
-if (window.ethereum) {
-  console.log('Web3 provider detected:', window.ethereum);
+// Store the original provider
+const ORIGINAL_PROVIDER = window.ethereum;
+
+// Function to wrap the provider methods
+function wrapProvider(provider) {
+  if (!provider) return null;
+  
+  // Create a proxy for the provider
+  const handler = {
+    get(target, prop) {
+      // Intercept method calls
+      if (typeof target[prop] === 'function') {
+        return new Proxy(target[prop], {
+          apply: (target, thisArg, args) => {
+            console.log(`Intercepted ${prop} call:`, args);
+            
+            // Handle different method types
+            switch (prop) {
+              case 'request':
+                return handleRequest(args[0]);
+              case 'send':
+              case 'sendAsync':
+                return handleLegacyRequest(args[0], args[1]);
+              default:
+                return target.apply(thisArg, args);
+            }
+          }
+        });
+      }
+      return target[prop];
+    },
+    set(target, prop, value) {
+      // Prevent overwriting our wrapped methods
+      if (prop === 'request' || prop === 'send' || prop === 'sendAsync') {
+        console.warn(`Prevented overwrite of ${prop} method`);
+        return true;
+      }
+      target[prop] = value;
+      return true;
+    }
+  };
+  
+  // Create and return the proxy
+  return new Proxy(provider, handler);
+}
+
+// Handle EIP-1193 provider requests
+async function handleRequest(request) {
+  console.log('Handling request:', request);
+  
+  // Intercept account and transaction requests
+  if (request.method === 'eth_requestAccounts' || 
+      request.method === 'eth_accounts') {
+    console.log('Intercepted account access request');
+    // Forward to the original provider
+    return ORIGINAL_PROVIDER.request(request);
+  }
+  
+  if (request.method === 'eth_sendTransaction' || 
+      request.method === 'eth_signTransaction') {
+    console.log('Intercepted transaction request:', request);
+    
+    try {
+      // Send to background for analysis
+      const response = await chrome.runtime.sendMessage({
+        type: 'ANALYZE_TRANSACTION',
+        data: request.params[0]
+      });
+      
+      console.log('Analysis response:', response);
+      
+      // If transaction is approved, send it to the original provider
+      if (response && response.approved) {
+        console.log('Transaction approved, sending to provider');
+        return ORIGINAL_PROVIDER.request(request);
+      } else {
+        console.log('Transaction rejected by user');
+        throw new Error('Transaction rejected by Web3 Guardian');
+      }
+    } catch (error) {
+      console.error('Error handling transaction:', error);
+      throw error;
+    }
+  }
+  
+  // Forward all other requests to the original provider
+  return ORIGINAL_PROVIDER.request(request);
+}
+
+// Handle legacy provider requests
+function handleLegacyRequest(method, params) {
+  console.log('Handling legacy request:', method, params);
+  
+  // Convert to EIP-1193 format
+  const request = { method, params };
+  const promise = handleRequest(request);
+  
+  // Convert to callback style if needed
+  if (typeof params === 'function' || Array.isArray(params)) {
+    return promise.then(
+      result => params[1]?.(null, { result }),
+      error => params[1]?.(error, null)
+    );
+  }
+  
+  return promise;
+}
+
+// Initialize the provider wrapper
+function initProviderWrapper() {
+  if (!window.ethereum) {
+    console.warn('No Web3 provider detected');
+    return;
+  }
+  
+  console.log('Wrapping Web3 provider');
+  
+  // Wrap the provider
+  const wrappedProvider = wrapProvider(window.ethereum);
+  
+  // Replace the global provider
+  Object.defineProperty(window, 'ethereum', {
+    value: wrappedProvider,
+    configurable: false,
+    writable: false
+  });
+  
+  console.log('Web3 provider wrapped successfully');
+}
+
+// Initialize when the page loads
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initProviderWrapper);
 } else {
-  console.warn('No Web3 provider detected on this page');
+  initProviderWrapper();
 }
 
 // Listen for messages from the popup and background script
