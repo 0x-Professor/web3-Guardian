@@ -51,13 +51,8 @@ async function handleAnalyzeTransaction(txData, sendResponse) {
     }
     
     // In a real implementation, this would send the transaction to your backend
-    // For now, we'll simulate a response
-    const result = {
-      riskLevel: 'low',
-      recommendations: ['Transaction appears safe'],
-      gasEstimate: '21000',
-      simulation: { success: true }
-    };
+    // For now, we'll analyze the transaction locally
+    const result = await analyzeTransactionLocally(txData);
     
     // Cache the result
     if (analysisCache.size >= CONFIG.MAX_CACHE_ITEMS) {
@@ -81,9 +76,73 @@ async function handleAnalyzeTransaction(txData, sendResponse) {
       success: false,
       error: error.message,
       riskLevel: 'unknown',
-      recommendations: []
+      recommendations: ['Failed to analyze transaction']
     });
   }
+}
+
+// Analyze transaction locally (replace with backend call in production)
+async function analyzeTransactionLocally(txData) {
+  // Basic risk analysis
+  const riskFactors = [];
+  const recommendations = [];
+  
+  // Check for high-value transfers
+  const value = parseFloat(txData.value || '0');
+  if (value > 1) { // More than 1 ETH or token
+    riskFactors.push('high_value');
+    recommendations.push(`High value transfer: ${value} ETH`);
+  }
+  
+  // Check for contract interactions
+  if (txData.to && txData.to !== txData.from) {
+    // In a real implementation, you would check if the address is a contract
+    // For now, we'll assume any transaction with data is a contract interaction
+    if (txData.data && txData.data !== '0x') {
+      riskFactors.push('contract_interaction');
+      recommendations.push('This is a contract interaction');
+    }
+  }
+  
+  // Check for known phishing addresses (simplified)
+  const knownPhishingAddresses = [
+    '0x0000000000000000000000000000000000000000',
+    // Add more known malicious addresses here
+  ];
+  
+  if (knownPhishingAddresses.includes(txData.to?.toLowerCase())) {
+    riskFactors.push('known_phishing');
+    recommendations.push('⚠️ Warning: This address is associated with phishing');
+  }
+  
+  // Determine risk level
+  let riskLevel = 'low';
+  if (riskFactors.includes('known_phishing')) {
+    riskLevel = 'critical';
+  } else if (riskFactors.includes('high_value') && riskFactors.includes('contract_interaction')) {
+    riskLevel = 'high';
+  } else if (riskFactors.length > 0) {
+    riskLevel = 'medium';
+  }
+  
+  // Add general recommendations
+  if (riskLevel === 'low') {
+    recommendations.push('This transaction appears to be safe');
+  } else if (riskLevel === 'medium') {
+    recommendations.push('Please review this transaction carefully');
+  } else if (riskLevel === 'high') {
+    recommendations.unshift('⚠️ High risk transaction detected!');
+  } else if (riskLevel === 'critical') {
+    recommendations.unshift('🚨 CRITICAL WARNING: Potential scam detected!');
+  }
+  
+  return {
+    success: true,
+    riskLevel,
+    riskFactors,
+    recommendations,
+    timestamp: new Date().toISOString()
+  };
 }
 
 // Handle showing transaction to user
