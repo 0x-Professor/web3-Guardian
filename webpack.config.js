@@ -2,6 +2,20 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const { CleanWebpackPlugin } = require('clean-webpack-plugin');
+const fs = require('fs');
+
+// Ensure extension directory exists
+const extensionDir = path.resolve(__dirname, 'extension');
+if (!fs.existsSync(extensionDir)) {
+  fs.mkdirSync(extensionDir, { recursive: true });
+}
+
+// Copy manifest file
+const manifestSrc = path.resolve(__dirname, 'extension', 'manifest.json');
+const manifestDest = path.resolve(extensionDir, 'manifest.json');
+if (fs.existsSync(manifestSrc) && !fs.existsSync(manifestDest)) {
+  fs.copyFileSync(manifestSrc, manifestDest);
+}
 
 module.exports = {
   entry: {
@@ -48,6 +62,13 @@ module.exports = {
     }),
     new CopyPlugin({
       patterns: [
+        { 
+          from: 'extension/manifest.json',
+          to: 'manifest.json',
+          toType: 'file',
+          force: true, // Overwrite if exists
+          noErrorOnMissing: false
+        },
         { 
           from: 'extension/src/assets',
           to: 'assets',
