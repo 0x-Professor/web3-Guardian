@@ -1,53 +1,80 @@
-// Background script for Web3 Guardian extension
-// Handles transaction analysis and communication with the backend
+import { ethers } from "ethers";
+import { logInfo, logError, logDebug } from "../utils/logger.js";
+import { fetchAnalysis, fetchGasPrice, simulateTransaction } from "./api.js";
 
-console.log('Web3 Guardian background script loaded');
+// Load environment variables
+const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || 'vH5jh4T1PWnfVIxV7su69';
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_MAINNET_API_KEY || '3NK7D3FBF2AQ23RBEDPX9BVZH4DD4E3DHZ';
+const INFURA_KEY = process.env.INFURA_API_KEY || '';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
-// Configuration
-const CONFIG = {
-  BACKEND_URL: 'http://localhost:8000',
-  CACHE_TTL: 5 * 60 * 1000, // 5 minutes
-  MAX_CACHE_ITEMS: 100
-};
+// Initialize provider with Alchemy as primary, fallback to Infura
+let provider;
+try {
+  provider = new ethers.providers.AlchemyProvider('homestead', ALCHEMY_API_KEY);
+  logInfo('Connected to Alchemy provider');
+} catch (error) {
+  logError('Failed to connect to Alchemy, falling back to Infura', error);
+  provider = new ethers.providers.InfuraProvider('homestead', INFURA_KEY);
+}
 
-// In-memory cache for analysis results
-const analysisCache = new Map();
+// Track current user accounts
+let currentAccounts = [];
+
+// Cache for contract information
+const contractCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 // Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Background received message:', request.type, 'from:', sender.tab?.url || 'unknown');
+  logInfo(`Received message type: ${request.type}`, { 
+    url: sender.tab?.url || 'unknown',
+    tabId: sender.tab?.id
+  });
   
-  switch (request.type) {
-    case 'ANALYZE_TRANSACTION':
-      handleAnalyzeTransaction(request.data, sendResponse);
-      return true; // Required for async response
-      
-    case 'SHOW_TRANSACTION':
-      handleShowTransaction(request.data, sender.tab, sendResponse);
-      return true;
-      
-    case 'TRANSACTION_RESPONSE':
-      handleTransactionResponse(request.data);
+  // Handle the message based on type
+  const messageHandlers = {
+    ANALYZE_DAPP: () => handleAnalyzeDapp(request.url, sendResponse),
+    ANALYZE_TRANSACTION: () => handleAnalyzeTransaction(request.txData, sendResponse, sender),
+    ACCOUNTS_CHANGED: () => {
+      currentAccounts = request.accounts;
+      logInfo("Updated current accounts", { count: currentAccounts.length });
       sendResponse({ success: true });
-      return true;
-      
-    case 'PONG':
-      console.log('Received PONG from content script');
+    },
+    ACCOUNTS_CONNECTED: () => {
+      currentAccounts = request.accounts;
+      logInfo("Accounts connected", { count: currentAccounts.length });
       sendResponse({ success: true });
-      return true;
-      
-    case 'GET_TRANSACTION_STATUS':
-      // First, check if we can talk to the content script
-      chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-        if (!tabs[0] || !tabs[0].id) {
-          console.error('No active tab found');
-          sendResponse({ success: false, error: 'No active tab found' });
-          return;
-        }
-        
-        const tabId = tabs[0].id;
-        
-        // First try to ping the content script
+    },
+    PING: () => {
+      logDebug("PING received, sending PONG");
+      sendResponse({ type: "PONG" });
+    }
+  };
+
+  try {
+    const handler = messageHandlers[request.type];
+    if (handler) {
+      const result = handler();
+      return result !== undefined ? result : true; // Keep message channel open if handler doesn't return anything
+    }
+    
+    logError("Unknown message type", { type: request.type });
+    sendResponse({ success: false, error: "Unknown message type" });
+  } catch (error) {
+    logError("Error handling message", { 
+      type: request.type, 
+      error: error.message,
+      stack: error.stack 
+    });
+    sendResponse({ 
+      success: false, 
+      error: `Error handling ${request.type}: ${error.message}` 
+    });
+  }
+  
+  return true; // Keep message channel open for async responses
+});
         chrome.tabs.sendMessage(
           tabId,
           { type: 'PING' },
@@ -76,16 +103,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
           }
         );
-      });
+     
       
-      return true; // Keep the message channel open for async response
-      
-    default:
-      console.warn('Unknown message type:', request.type);
-      sendResponse({ success: false, error: 'Unknown message type' });
-      return false;
-  }
-});
+     
+    
 
 // Helper function to get transaction status from content script
 function getTransactionStatus(tabId, sendResponse) {
@@ -272,19 +293,26 @@ function generateCacheKey(txData) {
   });
 }
 
-// Handle installation or update
-chrome.runtime.onInstalled.addListener((details) => {
-  if (details.reason === 'install') {
-    console.log('Web3 Guardian installed');
-    // Initialize extension state
-    chrome.storage.local.set({
-      settings: {
-        autoApproveLowRisk: true,
-        showNotifications: true
-      },
-      analyticsEnabled: false
-    });
-  } else if (details.reason === 'update') {
-    console.log('Web3 Guardian updated to version', chrome.runtime.getManifest().version);
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  switch (request.type) {
+    case 'GET_TRANSACTION_STATUS':
+      getTransactionStatus(sender.tab.id, sendResponse);
+      break;
+    case 'ANALYZE_TRANSACTION':
+      handleAnalyzeTransaction(request.txData, sendResponse, sender);
+      break;
+    case 'SHOW_TRANSACTION':
+      handleShowTransaction(request.txData, sender.tab, sendResponse);
+      break;
+    case 'TRANSACTION_RESPONSE':
+      handleTransactionResponse(request.response);
+      break;
+    case 'ANALYZE_DAPP':
+      handleAnalyzeDapp(request.url, sendResponse);
+      break;
+    default:
+      console.warn('Unknown message type:', request.type);
+      sendResponse({ success: false, error: 'Unknown message type' });
+      return false;
   }
 });
