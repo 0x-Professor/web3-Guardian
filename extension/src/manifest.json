@@ -6,10 +6,16 @@
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "webRequest",
+    "webRequestBlocking"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "https://api.etherscan.io/*",
+    "https://eth-mainnet.g.alchemy.com/*",
+    "http://localhost:8000/*",
+    "https://*/*",
+    "http://*/*"
   ],
   "action": {
     "default_popup": "popup.html",
