@@ -16,22 +16,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Function to extract transaction data from the page
 function getTransactionData() {
-  // This is a simplified example - in a real implementation,
-  // you would extract transaction details from the page
-  // or from the Web3 provider
+  // Get the connected wallet address
+  const from = window.ethereum?.selectedAddress || '0x000...';
+  
+  // Return null if no wallet is connected
+  if (from === '0x000...') {
+    return null;
+  }
+  
+  // Get transaction data from the page if available
+  // This is a simplified example - you may need to adjust selectors based on the dApp
+  let to = document.querySelector('[data-testid="transaction-to-address"]')?.innerText ||
+           document.querySelector('[data-testid="recipient-address"]')?.innerText ||
+           'Unknown';
+  
+  // Clean up the address if it contains additional text
+  to = to.replace('To: ', '').trim();
+  
+  // Get token amount and symbol if available
+  const amountElement = document.querySelector('[data-testid*="amount"]') ||
+                       document.querySelector('[data-testid*="input-amount"]');
+  const tokenElement = document.querySelector('[data-testid*="token-amount"]') ||
+                      document.querySelector('[data-testid*="token-symbol"]');
+  
+  const value = amountElement?.innerText || '0';
+  const token = tokenElement?.innerText?.replace(/[0-9.,]/g, '').trim() || 'ETH';
   
   return {
-    from: window.ethereum?.selectedAddress || '0x000...',
-    to: document.querySelector('[data-testid="page-container"]')?.innerText || 'Unknown',
-    value: '0.01',
-    gas: '21000',
-    nonce: '0',
-    data: '0x',
-    riskLevel: 'low',
-    recommendations: [
-      'Transaction appears safe',
-      'Gas price is optimal'
-    ]
+    from,
+    to,
+    value,
+    token,
+    timestamp: new Date().toISOString(),
+    network: window.ethereum?.networkVersion || '1',
+    // These will be populated when we intercept the actual transaction
+    gas: null,
+    nonce: null,
+    data: null,
+    // These will be set by the background script after analysis
+    riskLevel: null,
+    recommendations: []
   };
 }
 
