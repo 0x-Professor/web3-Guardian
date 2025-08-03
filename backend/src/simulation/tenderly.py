@@ -1,32 +1,38 @@
 import os
-import requests
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from web3 import Web3
+from tenderly_sdk import Tenderly, Network
+from tenderly_sdk.simulation import SimulationRequest
 
 logger = logging.getLogger(__name__)
 
 class TenderlySimulator:
     """Handles transaction simulation using Tenderly API."""
     
-    BASE_URL = "https://api.tenderly.co/api/v1"
-    
-    def __init__(self, api_key: str, project_slug: str, username: str):
+    def __init__(self, api_key: str, project_slug: str, account_slug: str):
         """Initialize the Tenderly simulator.
         
         Args:
             api_key: Tenderly API key
             project_slug: Tenderly project slug
-            username: Tenderly username
+            account_slug: Tenderly account slug (username or organization name)
         """
-        self.api_key = api_key
-        self.project_slug = project_slug
-        self.username = username
-        self.session = requests.Session()
-        self.session.headers.update({
-            "X-Access-Key": self.api_key,
-            "Content-Type": "application/json"
-        })
+        self.tenderly = Tenderly(
+            access_key=api_key,
+            account_slug=account_slug,
+            project_slug=project_slug
+        )
+        
+        # Map common network names to Tenderly network IDs
+        self.network_map = {
+            1: Network.MAINNET,
+            5: Network.GOERLI,
+            137: Network.POLYGON,
+            42161: Network.ARBITRUM_ONE,
+            10: Network.OPTIMISM,
+            56: Network.BSC_MAINNET,
+        }
     
     def simulate_transaction(
         self,
