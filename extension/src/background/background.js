@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { logInfo, logError, logDebug } from "../utils/logger.js";
-import { fetchAnalysis, fetchGasPrice, simulateTransaction } from "./api.js";
+import { fetchAnalysis, fetchGasPrice, simulateTransaction } from "../utils/api.js";
 
 // Load environment variables
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || 'vH5jh4T1PWnfVIxV7su69';
