@@ -336,87 +336,173 @@ async function handleSigningRequest(args, requestId) {
   }
 }
 
-// Analyze current dApp with comprehensive security data extraction
+// Advanced dApp analysis with mutation observers and dynamic content detection
 async function analyzeDApp() {
+  logInfo('🔍 Starting comprehensive dApp analysis...');
+  
+  // Wait for dynamic content to load
+  await waitForDynamicContent();
+  
   const dAppInfo = {
     // Basic identification
     url: window.location.href,
     domain: window.location.hostname,
     title: document.title,
     description: document.querySelector('meta[name="description"]')?.content || '',
-    favicon: document.querySelector('link[rel="icon"]')?.href || document.querySelector('link[rel="shortcut icon"]')?.href || '',
+    favicon: extractFavicon(),
     
     // Web3 provider detection
+    web3Detection: detectWeb3Ecosystem(),
+    
+    // Smart contract addresses extraction with multiple techniques
+    contractAddresses: await extractContractAddressesAdvanced(),
+    
+    // Network information with dynamic detection
+    networkInfo: await detectNetworkInfoAdvanced(),
+    
+    // Token and NFT information
+    tokenInfo: await extractTokenInfoAdvanced(),
+    nftInfo: await extractNFTInfoAdvanced(),
+    
+    // Security analysis
+    securityAnalysis: await performSecurityAnalysis(),
+    
+    // External resources and domains
+    externalResources: analyzeExternalResources(),
+    
+    // dApp metadata and social links
+    metadata: extractDAppMetadata(),
+    
+    // Technical architecture detection
+    techStack: detectTechnicalStack(),
+    
+    // UI/UX analysis
+    uiAnalysis: analyzeUserInterface(),
+    
+    // Transaction and wallet interaction patterns
+    interactionPatterns: analyzeInteractionPatterns(),
+    
+    timestamp: Date.now()
+  };
+  
+  logInfo('✅ dApp analysis complete:', dAppInfo);
+  return dAppInfo;
+}
+
+// Wait for dynamic content to load
+async function waitForDynamicContent() {
+  return new Promise((resolve) => {
+    let attempts = 0;
+    const maxAttempts = 20;
+    
+    const checkContent = () => {
+      attempts++;
+      
+      // Check if common Web3 elements are present
+      const web3Elements = document.querySelectorAll([
+        '[class*="connect"]',
+        '[class*="wallet"]',
+        '[class*="swap"]',
+        '[class*="trade"]',
+        '[class*="transaction"]',
+        'button',
+        'input',
+        '[data-testid]'
+      ].join(','));
+      
+      if (web3Elements.length > 10 || attempts >= maxAttempts) {
+        resolve();
+      } else {
+        setTimeout(checkContent, 250);
+      }
+    };
+    
+    if (document.readyState === 'complete') {
+      setTimeout(checkContent, 500); // Give time for React/Vue to render
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(checkContent, 500);
+      });
+    }
+  });
+}
+
+// Extract favicon with fallbacks
+function extractFavicon() {
+  const selectors = [
+    'link[rel="icon"]',
+    'link[rel="shortcut icon"]',
+    'link[rel="apple-touch-icon"]',
+    'meta[property="og:image"]'
+  ];
+  
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (element) {
+      return element.href || element.content;
+    }
+  }
+  
+  return `${window.location.origin}/favicon.ico`;
+}
+
+// Advanced Web3 ecosystem detection
+function detectWeb3Ecosystem() {
+  const detection = {
     hasWeb3: !!window.Web3,
     hasEthers: !!window.ethers,
     hasWagmi: !!window.wagmi,
     hasRainbowKit: !!window.RainbowKit,
     hasWalletConnect: !!window.WalletConnect,
+    hasMetaMask: !!window.ethereum?.isMetaMask,
     providerType: detectProviderType(),
-    
-    // Smart contract addresses extraction
-    contractAddresses: extractContractAddresses(),
-    
-    // Network information
-    supportedNetworks: detectSupportedNetworks(),
-    defaultNetwork: detectDefaultNetwork(),
-    
-    // Token information
-    tokenContracts: extractTokenContracts(),
-    nftContracts: extractNFTContracts(),
-    
-    // Security indicators
-    hasObfuscatedCode: checkForObfuscation(),
-    usesHttps: window.location.protocol === 'https:',
-    hasContentSecurityPolicy: checkCSPHeaders(),
-    hasSubResourceIntegrity: checkSRITags(),
-    
-    // External domains and resources
-    externalDomains: getExternalDomains(),
-    externalScripts: getExternalScripts(),
-    iframes: getIframeInfo(),
-    
-    // dApp metadata
-    manifestInfo: extractManifestInfo(),
-    socialLinks: extractSocialLinks(),
-    githubInfo: extractGithubInfo(),
-    
-    // Frontend framework detection
-    framework: detectFramework(),
-    buildTool: detectBuildTool(),
-    
-    // Security flags
-    suspiciousPatterns: detectSuspiciousPatterns(),
-    trustIndicators: detectTrustIndicators(),
-    
-    // Wallet interaction patterns
-    walletMethods: detectWalletMethods(),
-    permissionsRequested: [],
-    
-    // UI/UX analysis
-    uiComplexity: analyzeUIComplexity(),
-    hasTransactionPreview: checkTransactionPreview(),
-    hasGasEstimation: checkGasEstimation(),
-    
-    timestamp: Date.now()
+    libraries: []
   };
   
-  return dAppInfo;
+  // Check for Web3 libraries in global scope
+  const web3Libraries = [
+    'Web3', 'ethers', 'wagmi', 'viem', 'web3modal', 'connectkit',
+    'RainbowKit', 'WalletConnect', 'Moralis', 'Alchemy', 'Infura'
+  ];
+  
+  web3Libraries.forEach(lib => {
+    if (window[lib]) {
+      detection.libraries.push(lib);
+    }
+  });
+  
+  // Check for Web3 patterns in script content
+  const scriptContent = Array.from(document.scripts)
+    .map(script => script.textContent || script.src || '')
+    .join(' ');
+  
+  const web3Patterns = [
+    'ethereum', 'web3', 'ethers', 'wagmi', 'walletconnect',
+    'metamask', 'coinbase', 'rainbow', 'uniswap', 'pancakeswap'
+  ];
+  
+  web3Patterns.forEach(pattern => {
+    if (scriptContent.toLowerCase().includes(pattern)) {
+      detection.libraries.push(`detected_${pattern}`);
+    }
+  });
+  
+  return detection;
 }
 
-// Enhanced contract address extraction
-function extractContractAddresses() {
+// Advanced contract address extraction
+async function extractContractAddressesAdvanced() {
   const addresses = new Set();
   const addressRegex = /0x[a-fA-F0-9]{40}/g;
   
-  // Search in page content
+  // 1. Extract from visible text content
   const pageText = document.body.innerText;
-  const matches = pageText.match(addressRegex);
-  if (matches) {
-    matches.forEach(addr => addresses.add(addr.toLowerCase()));
+  const textMatches = pageText.match(addressRegex);
+  if (textMatches) {
+    textMatches.forEach(addr => addresses.add(addr.toLowerCase()));
   }
   
-  // Search in script contents
+  // 2. Extract from all script contents
   Array.from(document.scripts).forEach(script => {
     if (script.textContent) {
       const scriptMatches = script.textContent.match(addressRegex);
@@ -426,66 +512,114 @@ function extractContractAddresses() {
     }
   });
   
-  // Search in data attributes
-  document.querySelectorAll('[data-*]').forEach(el => {
-    Array.from(el.attributes).forEach(attr => {
-      if (attr.value && attr.value.match(addressRegex)) {
+  // 3. Extract from data attributes and properties
+  document.querySelectorAll('*').forEach(el => {
+    // Check all attributes
+    Array.from(el.attributes || []).forEach(attr => {
+      if (attr.value) {
         const attrMatches = attr.value.match(addressRegex);
         if (attrMatches) {
           attrMatches.forEach(addr => addresses.add(addr.toLowerCase()));
         }
       }
     });
-  });
-  
-  // Common contract address locations
-  const commonSelectors = [
-    '[class*="contract"]',
-    '[class*="address"]',
-    '[id*="contract"]',
-    '[id*="address"]',
-    '[data-contract]',
-    '[data-address]'
-  ];
-  
-  commonSelectors.forEach(selector => {
-    document.querySelectorAll(selector).forEach(el => {
-      const text = el.textContent || el.value || el.getAttribute('data-contract') || el.getAttribute('data-address');
-      if (text) {
-        const selectorMatches = text.match(addressRegex);
-        if (selectorMatches) {
-          selectorMatches.forEach(addr => addresses.add(addr.toLowerCase()));
+    
+    // Check element properties
+    ['value', 'textContent', 'innerHTML'].forEach(prop => {
+      const value = el[prop];
+      if (typeof value === 'string') {
+        const propMatches = value.match(addressRegex);
+        if (propMatches) {
+          propMatches.forEach(addr => addresses.add(addr.toLowerCase()));
         }
       }
     });
   });
   
-  return Array.from(addresses);
+  // 4. Extract from localStorage and sessionStorage
+  try {
+    const storageKeys = [...Object.keys(localStorage), ...Object.keys(sessionStorage)];
+    storageKeys.forEach(key => {
+      try {
+        const value = localStorage.getItem(key) || sessionStorage.getItem(key);
+        if (value) {
+          const storageMatches = value.match(addressRegex);
+          if (storageMatches) {
+            storageMatches.forEach(addr => addresses.add(addr.toLowerCase()));
+          }
+        }
+      } catch (e) {}
+    });
+  } catch (e) {}
+  
+  // 5. Extract from network requests (if intercepted)
+  if (window.fetch && window.fetch.intercepted) {
+    // This would need to be implemented in the fetch interceptor
+  }
+  
+  // 6. Look for specific contract address patterns in common locations
+  const commonSelectors = [
+    '[class*="contract"]', '[class*="address"]', '[id*="contract"]', '[id*="address"]',
+    '[data-contract]', '[data-address]', '[data-token]', '[data-pool]',
+    '.token-address', '.contract-address', '.pool-address', '.pair-address'
+  ];
+  
+  commonSelectors.forEach(selector => {
+    try {
+      document.querySelectorAll(selector).forEach(el => {
+        const sources = [
+          el.textContent, el.value, el.title, el.alt,
+          el.getAttribute('data-contract'), el.getAttribute('data-address'),
+          el.getAttribute('data-token'), el.getAttribute('href')
+        ].filter(Boolean);
+        
+        sources.forEach(source => {
+          const matches = source.match(addressRegex);
+          if (matches) {
+            matches.forEach(addr => addresses.add(addr.toLowerCase()));
+          }
+        });
+      });
+    } catch (e) {}
+  });
+  
+  const addressArray = Array.from(addresses);
+  logInfo(`Found ${addressArray.length} contract addresses:`, addressArray);
+  return addressArray;
 }
 
-// Detect Web3 provider type
-function detectProviderType() {
-  if (window.ethereum?.isMetaMask) return 'MetaMask';
-  if (window.ethereum?.isCoinbaseWallet) return 'Coinbase Wallet';
-  if (window.ethereum?.isRabby) return 'Rabby';
-  if (window.ethereum?.isTrust) return 'Trust Wallet';
-  if (window.ethereum?.isPhantom) return 'Phantom';
-  if (window.ethereum) return 'Generic Ethereum';
-  return null;
-}
-
-// Detect supported networks
-function detectSupportedNetworks() {
-  const networks = [];
+// Advanced network detection
+async function detectNetworkInfoAdvanced() {
+  const networkInfo = {
+    supportedNetworks: [],
+    defaultNetwork: 'Unknown',
+    chainId: null,
+    networkVersion: null,
+    rpcUrls: []
+  };
+  
+  // Get current network from provider
+  if (window.ethereum) {
+    try {
+      networkInfo.chainId = await window.ethereum.request({ method: 'eth_chainId' });
+      networkInfo.networkVersion = await window.ethereum.request({ method: 'net_version' });
+      networkInfo.defaultNetwork = getNetworkName(parseInt(networkInfo.chainId, 16));
+    } catch (e) {
+      logError('Error getting network info:', e);
+    }
+  }
+  
+  // Detect supported networks from content
   const networkPatterns = [
-    { name: 'Ethereum', patterns: ['ethereum', 'mainnet', 'eth'] },
-    { name: 'Polygon', patterns: ['polygon', 'matic'] },
-    { name: 'BSC', patterns: ['bsc', 'binance'] },
-    { name: 'Arbitrum', patterns: ['arbitrum', 'arb'] },
-    { name: 'Optimism', patterns: ['optimism', 'op'] },
-    { name: 'Avalanche', patterns: ['avalanche', 'avax'] },
-    { name: 'Fantom', patterns: ['fantom', 'ftm'] },
-    { name: 'Solana', patterns: ['solana', 'sol'] }
+    { name: 'Ethereum', patterns: ['ethereum', 'mainnet', 'eth', 'erc20', 'erc721'], chainId: 1 },
+    { name: 'Polygon', patterns: ['polygon', 'matic', 'pos'], chainId: 137 },
+    { name: 'BSC', patterns: ['bsc', 'binance', 'bnb'], chainId: 56 },
+    { name: 'Arbitrum', patterns: ['arbitrum', 'arb'], chainId: 42161 },
+    { name: 'Optimism', patterns: ['optimism', 'op'], chainId: 10 },
+    { name: 'Avalanche', patterns: ['avalanche', 'avax'], chainId: 43114 },
+    { name: 'Fantom', patterns: ['fantom', 'ftm'], chainId: 250 },
+    { name: 'Base', patterns: ['base'], chainId: 8453 },
+    { name: 'Solana', patterns: ['solana', 'sol', 'spl'] }
   ];
   
   const pageContent = document.body.innerText.toLowerCase();
@@ -499,378 +633,528 @@ function detectSupportedNetworks() {
       pageContent.includes(pattern) || scriptContent.includes(pattern)
     );
     if (found) {
-      networks.push(network.name);
+      networkInfo.supportedNetworks.push({
+        name: network.name,
+        chainId: network.chainId,
+        detected: true
+      });
     }
   });
   
-  return networks;
-}
-
-// Detect default network from page content
-function detectDefaultNetwork() {
-  const content = document.body.innerText.toLowerCase();
-  const scriptContent = Array.from(document.scripts)
-    .map(script => script.textContent || '')
-    .join(' ')
-    .toLowerCase();
-  
-  // Check for network indicators in order of priority
-  if (content.includes('mainnet') || scriptContent.includes('mainnet')) return 'Ethereum Mainnet';
-  if (content.includes('polygon') || scriptContent.includes('polygon')) return 'Polygon';
-  if (content.includes('arbitrum') || scriptContent.includes('arbitrum')) return 'Arbitrum';
-  if (content.includes('optimism') || scriptContent.includes('optimism')) return 'Optimism';
-  if (content.includes('bsc') || scriptContent.includes('bsc')) return 'BSC';
-  if (content.includes('avalanche') || scriptContent.includes('avalanche')) return 'Avalanche';
-  
-  // Check current chain if available
-  if (window.ethereum?.chainId) {
-    const chainId = parseInt(window.ethereum.chainId, 16);
-    switch (chainId) {
-      case 1: return 'Ethereum Mainnet';
-      case 137: return 'Polygon';
-      case 42161: return 'Arbitrum';
-      case 10: return 'Optimism';
-      case 56: return 'BSC';
-      case 43114: return 'Avalanche';
-      default: return `Chain ${chainId}`;
-    }
+  // Extract RPC URLs
+  const rpcRegex = /https?:\/\/[^\s"']+\.(?:infura|alchemy|quicknode|rpc)[\w\-\.\/]*/gi;
+  const rpcMatches = scriptContent.match(rpcRegex);
+  if (rpcMatches) {
+    networkInfo.rpcUrls = [...new Set(rpcMatches)];
   }
   
-  return 'Unknown';
+  return networkInfo;
 }
 
-// Extract token contracts
-function extractTokenContracts() {
+// Get network name from chain ID
+function getNetworkName(chainId) {
+  const networks = {
+    1: 'Ethereum Mainnet',
+    137: 'Polygon',
+    56: 'BSC',
+    42161: 'Arbitrum',
+    10: 'Optimism',
+    43114: 'Avalanche',
+    250: 'Fantom',
+    8453: 'Base',
+    5: 'Goerli',
+    11155111: 'Sepolia'
+  };
+  return networks[chainId] || `Chain ${chainId}`;
+}
+
+// Advanced token information extraction
+async function extractTokenInfoAdvanced() {
   const tokens = [];
+  const tokenPatterns = {
+    symbols: /\b[A-Z]{2,6}\b(?=\s|$|[^A-Za-z])/g,
+    addresses: /0x[a-fA-F0-9]{40}/g
+  };
   
-  // Look for common token patterns
+  // Common token selectors
   const tokenSelectors = [
-    '[class*="token"]',
-    '[data-token]',
-    '[data-symbol]',
-    '.currency',
-    '.asset'
+    '[class*="token"]', '[class*="currency"]', '[class*="asset"]',
+    '[data-token]', '[data-symbol]', '[data-currency]',
+    '.token-symbol', '.currency-symbol', '.asset-symbol',
+    'select option', '.dropdown-option'
   ];
   
   tokenSelectors.forEach(selector => {
-    document.querySelectorAll(selector).forEach(el => {
-      const symbol = el.textContent?.match(/[A-Z]{2,6}/) || 
-                    el.getAttribute('data-symbol') ||
-                    el.getAttribute('data-token');
-      
-      const address = el.getAttribute('data-address') ||
-                     el.textContent?.match(/0x[a-fA-F0-9]{40}/);
-      
-      if (symbol || address) {
-        tokens.push({
-          symbol: Array.isArray(symbol) ? symbol[0] : symbol,
-          address: Array.isArray(address) ? address[0] : address,
-          element: el.tagName
-        });
-      }
-    });
+    try {
+      document.querySelectorAll(selector).forEach(el => {
+        const tokenData = {
+          symbol: null,
+          address: null,
+          name: null,
+          source: selector,
+          element: el.tagName.toLowerCase()
+        };
+        
+        // Extract symbol
+        const symbolSources = [
+          el.textContent, el.value, el.getAttribute('data-symbol'),
+          el.getAttribute('data-token'), el.title
+        ];
+        
+        for (const source of symbolSources) {
+          if (source) {
+            const symbolMatch = source.match(/\b[A-Z]{2,8}\b/);
+            if (symbolMatch) {
+              tokenData.symbol = symbolMatch[0];
+              break;
+            }
+          }
+        }
+        
+        // Extract address
+        const addressSources = [
+          el.getAttribute('data-address'), el.getAttribute('data-token'),
+          el.textContent, el.value
+        ];
+        
+        for (const source of addressSources) {
+          if (source) {
+            const addressMatch = source.match(/0x[a-fA-F0-9]{40}/);
+            if (addressMatch) {
+              tokenData.address = addressMatch[0].toLowerCase();
+              break;
+            }
+          }
+        }
+        
+        // Extract token name
+        const nameText = el.textContent?.trim();
+        if (nameText && nameText.length > 2 && nameText.length < 50) {
+          tokenData.name = nameText;
+        }
+        
+        if (tokenData.symbol || tokenData.address || tokenData.name) {
+          tokens.push(tokenData);
+        }
+      });
+    } catch (e) {}
+  });
+  
+  // Look for popular tokens in content
+  const popularTokens = [
+    { symbol: 'ETH', name: 'Ethereum' },
+    { symbol: 'BTC', name: 'Bitcoin' },
+    { symbol: 'USDC', name: 'USD Coin' },
+    { symbol: 'USDT', name: 'Tether' },
+    { symbol: 'DAI', name: 'Dai' },
+    { symbol: 'WETH', name: 'Wrapped Ethereum' },
+    { symbol: 'UNI', name: 'Uniswap' },
+    { symbol: 'LINK', name: 'Chainlink' }
+  ];
+  
+  const content = document.body.textContent.toLowerCase();
+  popularTokens.forEach(token => {
+    if (content.includes(token.symbol.toLowerCase()) || content.includes(token.name.toLowerCase())) {
+      tokens.push({
+        symbol: token.symbol,
+        name: token.name,
+        source: 'content_detection',
+        popular: true
+      });
+    }
   });
   
   return tokens;
 }
 
-// Extract NFT contracts
-function extractNFTContracts() {
+// Advanced NFT information extraction
+async function extractNFTInfoAdvanced() {
   const nfts = [];
-  const nftKeywords = ['nft', 'erc721', 'erc1155', 'opensea', 'collection'];
+  const nftKeywords = ['nft', 'erc721', 'erc1155', 'opensea', 'collection', 'marketplace'];
   
-  nftKeywords.forEach(keyword => {
-    document.querySelectorAll(`[class*="${keyword}"], [id*="${keyword}"]`).forEach(el => {
-      const address = el.textContent?.match(/0x[a-fA-F0-9]{40}/);
-      if (address) {
-        nfts.push({
-          address: address[0],
-          type: keyword,
-          element: el.tagName
-        });
-      }
-    });
+  // Look for NFT-related elements
+  const nftSelectors = [
+    '[class*="nft"]', '[class*="collection"]', '[class*="marketplace"]',
+    '[data-nft]', '[data-collection]', '[data-tokenid]'
+  ];
+  
+  nftSelectors.forEach(selector => {
+    try {
+      document.querySelectorAll(selector).forEach(el => {
+        const nftData = {
+          type: 'unknown',
+          address: null,
+          tokenId: null,
+          source: selector
+        };
+        
+        // Extract contract address
+        const addressMatch = el.textContent?.match(/0x[a-fA-F0-9]{40}/);
+        if (addressMatch) {
+          nftData.address = addressMatch[0].toLowerCase();
+        }
+        
+        // Extract token ID
+        const tokenIdMatch = el.textContent?.match(/#(\d+)/);
+        if (tokenIdMatch) {
+          nftData.tokenId = tokenIdMatch[1];
+        }
+        
+        // Determine NFT type
+        const text = el.textContent?.toLowerCase() || '';
+        if (text.includes('erc721')) nftData.type = 'ERC721';
+        else if (text.includes('erc1155')) nftData.type = 'ERC1155';
+        else if (text.includes('collection')) nftData.type = 'Collection';
+        
+        if (nftData.address || nftData.tokenId) {
+          nfts.push(nftData);
+        }
+      });
+    } catch (e) {}
   });
   
   return nfts;
 }
 
-// Check Content Security Policy
-function checkCSPHeaders() {
-  const cspMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
-  return !!cspMeta;
+// Comprehensive security analysis
+async function performSecurityAnalysis() {
+  const analysis = {
+    https: window.location.protocol === 'https:',
+    csp: checkContentSecurityPolicy(),
+    sri: checkSubresourceIntegrity(),
+    obfuscation: checkForObfuscation(),
+    suspiciousPatterns: detectSuspiciousPatterns(),
+    trustIndicators: detectTrustIndicators(),
+    externalScripts: analyzeExternalScripts(),
+    permissions: analyzePermissions()
+  };
+  
+  return analysis;
 }
 
-// Check Subresource Integrity
-function checkSRITags() {
-  const scriptsWithSRI = document.querySelectorAll('script[integrity]');
-  const linksWithSRI = document.querySelectorAll('link[integrity]');
-  return scriptsWithSRI.length > 0 || linksWithSRI.length > 0;
-}
-
-// Get external scripts with security analysis
-function getExternalScripts() {
-  const scripts = [];
+// Analyze external resources
+function analyzeExternalResources() {
+  const resources = {
+    domains: new Set(),
+    scripts: [],
+    iframes: [],
+    images: []
+  };
+  
   const currentDomain = window.location.hostname;
   
+  // Analyze scripts
   Array.from(document.scripts).forEach(script => {
     if (script.src) {
       try {
         const url = new URL(script.src);
         if (url.hostname !== currentDomain) {
-          scripts.push({
+          resources.domains.add(url.hostname);
+          resources.scripts.push({
             src: script.src,
             domain: url.hostname,
             hasIntegrity: !!script.integrity,
             async: script.async,
-            defer: script.defer,
-            crossOrigin: script.crossOrigin
+            defer: script.defer
           });
         }
-      } catch (e) {
-        scripts.push({
-          src: script.src,
-          domain: 'invalid-url',
-          hasIntegrity: false
-        });
-      }
+      } catch (e) {}
     }
   });
   
-  return scripts;
-}
-
-// Get iframe information
-function getIframeInfo() {
-  const iframes = [];
-  
-  document.querySelectorAll('iframe').forEach(iframe => {
-    try {
-      const src = iframe.src;
-      if (src) {
-        const url = new URL(src);
-        iframes.push({
-          src: src,
+  // Analyze iframes
+  Array.from(document.querySelectorAll('iframe')).forEach(iframe => {
+    if (iframe.src) {
+      try {
+        const url = new URL(iframe.src);
+        resources.domains.add(url.hostname);
+        resources.iframes.push({
+          src: iframe.src,
           domain: url.hostname,
-          sandbox: iframe.sandbox.toString(),
-          allow: iframe.allow
+          sandbox: iframe.sandbox?.toString() || '',
+          allow: iframe.allow || ''
         });
-      }
-    } catch (e) {
-      iframes.push({
-        src: iframe.src,
-        domain: 'invalid-url',
-        sandbox: iframe.sandbox?.toString() || '',
-        allow: iframe.allow || ''
-      });
+      } catch (e) {}
     }
   });
   
-  return iframes;
-}
-
-// Extract manifest information
-function extractManifestInfo() {
-  const manifest = document.querySelector('link[rel="manifest"]');
-  if (!manifest) return null;
+  // Analyze images
+  Array.from(document.querySelectorAll('img')).forEach(img => {
+    if (img.src) {
+      try {
+        const url = new URL(img.src);
+        if (url.hostname !== currentDomain) {
+          resources.domains.add(url.hostname);
+          resources.images.push({
+            src: img.src,
+            domain: url.hostname,
+            alt: img.alt || ''
+          });
+        }
+      } catch (e) {}
+    }
+  });
   
   return {
-    href: manifest.href,
-    crossOrigin: manifest.crossOrigin
+    externalDomains: Array.from(resources.domains),
+    scripts: resources.scripts,
+    iframes: resources.iframes,
+    images: resources.images
   };
 }
 
-// Extract social links
-function extractSocialLinks() {
-  const socialLinks = {};
-  const socialPatterns = {
-    twitter: /twitter\.com|x\.com/,
-    github: /github\.com/,
-    discord: /discord\.(gg|com)/,
-    telegram: /t\.me|telegram\.org/,
-    medium: /medium\.com/,
-    reddit: /reddit\.com/
+// Extract dApp metadata
+function extractDAppMetadata() {
+  const metadata = {
+    socialLinks: extractSocialLinks(),
+    githubInfo: extractGithubInfo(),
+    manifestInfo: extractManifestInfo(),
+    metaTags: extractMetaTags()
   };
   
-  document.querySelectorAll('a[href]').forEach(link => {
-    const href = link.href;
-    Object.entries(socialPatterns).forEach(([platform, pattern]) => {
-      if (pattern.test(href)) {
-        if (!socialLinks[platform]) {
-          socialLinks[platform] = [];
-        }
-        socialLinks[platform].push(href);
-      }
-    });
-  });
-  
-  return socialLinks;
+  return metadata;
 }
 
-// Extract GitHub information
-function extractGithubInfo() {
-  const githubLinks = [];
-  document.querySelectorAll('a[href*="github.com"]').forEach(link => {
-    const match = link.href.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-    if (match) {
-      githubLinks.push({
-        url: link.href,
-        owner: match[1],
-        repo: match[2]
-      });
+// Extract meta tags
+function extractMetaTags() {
+  const metaTags = {};
+  
+  Array.from(document.querySelectorAll('meta')).forEach(meta => {
+    const name = meta.getAttribute('name') || meta.getAttribute('property');
+    const content = meta.getAttribute('content');
+    
+    if (name && content) {
+      metaTags[name] = content;
     }
   });
   
-  return githubLinks;
+  return metaTags;
 }
 
-// Detect frontend framework
-function detectFramework() {
-  if (window.React || document.querySelector('[data-reactroot]')) return 'React';
-  if (window.Vue || document.querySelector('[data-v-]')) return 'Vue.js';
-  if (window.angular || document.querySelector('[ng-app]')) return 'Angular';
-  if (document.querySelector('[data-svelte]')) return 'Svelte';
-  if (window.Ember) return 'Ember.js';
-  return 'Unknown';
+// Detect technical stack
+function detectTechnicalStack() {
+  const stack = {
+    framework: detectFramework(),
+    buildTool: detectBuildTool(),
+    bundler: detectBundler(),
+    testing: detectTestingFramework(),
+    styling: detectStylingFramework()
+  };
+  
+  return stack;
 }
 
-// Detect build tool
-function detectBuildTool() {
+// Detect bundler
+function detectBundler() {
   const scripts = Array.from(document.scripts).map(s => s.src).join('');
-  if (scripts.includes('webpack')) return 'Webpack';
-  if (scripts.includes('vite')) return 'Vite';
+  const content = document.documentElement.innerHTML;
+  
+  if (scripts.includes('webpack') || content.includes('webpackChunkName')) return 'Webpack';
+  if (scripts.includes('vite') || content.includes('__vite')) return 'Vite';
   if (scripts.includes('parcel')) return 'Parcel';
   if (scripts.includes('rollup')) return 'Rollup';
+  if (scripts.includes('esbuild')) return 'ESBuild';
+  
   return 'Unknown';
 }
 
-// Detect suspicious patterns
-function detectSuspiciousPatterns() {
-  const patterns = [];
-  const content = document.body.innerText.toLowerCase();
-  
-  // Suspicious phrases
-  const suspiciousPhrases = [
-    'send eth to claim',
-    'limited time offer',
-    'urgent action required',
-    'claim free tokens',
-    'airdrop ending soon',
-    'verify your wallet',
-    'connect to claim',
-    'approve transaction to receive'
-  ];
-  
-  suspiciousPhrases.forEach(phrase => {
-    if (content.includes(phrase)) {
-      patterns.push(`suspicious_phrase_${phrase.replace(/\s+/g, '_')}`);
-    }
-  });
-  
-  // Check for fake domain indicators
-  const domain = window.location.hostname;
-  if (domain.includes('metamask') || domain.includes('uniswap') || domain.includes('opensea')) {
-    if (!domain.endsWith('.app') && !domain.endsWith('.com') && !domain.endsWith('.org')) {
-      patterns.push('potential_domain_spoofing');
-    }
-  }
-  
-  return patterns;
-}
-
-// Detect trust indicators
-function detectTrustIndicators() {
-  const indicators = [];
-  
-  // SSL/HTTPS
-  if (window.location.protocol === 'https:') {
-    indicators.push('https_enabled');
-  }
-  
-  // Verified contracts (look for verification badges)
-  if (document.querySelector('[class*="verified"], [class*="badge"]')) {
-    indicators.push('verification_badges');
-  }
-  
-  // Audit information
-  const content = document.body.innerText.toLowerCase();
-  const auditKeywords = ['audit', 'certik', 'consensys', 'trail of bits', 'openzeppelin'];
-  auditKeywords.forEach(keyword => {
-    if (content.includes(keyword)) {
-      indicators.push(`audit_${keyword.replace(/\s+/g, '_')}`);
-    }
-  });
-  
-  return indicators;
-}
-
-// Detect wallet interaction methods
-function detectWalletMethods() {
-  const methods = [];
+// Detect testing framework
+function detectTestingFramework() {
   const scriptContent = Array.from(document.scripts)
     .map(script => script.textContent || '')
     .join(' ');
   
-  const walletMethods = [
-    'eth_requestAccounts',
-    'eth_sendTransaction',
-    'eth_signTransaction',
-    'personal_sign',
-    'eth_signTypedData',
-    'wallet_addEthereumChain',
-    'wallet_switchEthereumChain'
+  if (scriptContent.includes('jest')) return 'Jest';
+  if (scriptContent.includes('mocha')) return 'Mocha';
+  if (scriptContent.includes('cypress')) return 'Cypress';
+  if (scriptContent.includes('playwright')) return 'Playwright';
+  
+  return 'Unknown';
+}
+
+// Detect styling framework
+function detectStylingFramework() {
+  const stylesheets = Array.from(document.styleSheets);
+  const classNames = Array.from(document.querySelectorAll('*'))
+    .map(el => el.className)
+    .join(' ');
+  
+  if (classNames.includes('tailwind') || classNames.includes('tw-')) return 'Tailwind CSS';
+  if (classNames.includes('bootstrap') || classNames.includes('btn-')) return 'Bootstrap';
+  if (classNames.includes('mui') || classNames.includes('MuiButton')) return 'Material-UI';
+  if (classNames.includes('ant-')) return 'Ant Design';
+  if (classNames.includes('chakra-')) return 'Chakra UI';
+  
+  return 'Unknown';
+}
+
+// Analyze user interface
+function analyzeUserInterface() {
+  const analysis = {
+    complexity: analyzeUIComplexity(),
+    accessibility: analyzeAccessibility(),
+    responsiveness: analyzeResponsiveness(),
+    interactions: analyzeInteractions()
+  };
+  
+  return analysis;
+}
+
+// Analyze accessibility
+function analyzeAccessibility() {
+  const accessibility = {
+    hasAltTags: document.querySelectorAll('img[alt]').length > 0,
+    hasAriaLabels: document.querySelectorAll('[aria-label]').length > 0,
+    hasFocusIndicators: document.querySelectorAll(':focus').length > 0,
+    hasSemanticHTML: document.querySelectorAll('header, nav, main, section, article, aside, footer').length > 0
+  };
+  
+  return accessibility;
+}
+
+// Analyze responsiveness
+function analyzeResponsiveness() {
+  const viewport = document.querySelector('meta[name="viewport"]');
+  const mediaQueries = Array.from(document.styleSheets)
+    .flatMap(sheet => {
+      try {
+        return Array.from(sheet.cssRules || []);
+      } catch (e) {
+        return [];
+      }
+    })
+    .filter(rule => rule.type === CSSRule.MEDIA_RULE).length;
+  
+  return {
+    hasViewportMeta: !!viewport,
+    mediaQueriesCount: mediaQueries,
+    isResponsive: !!viewport && mediaQueries > 0
+  };
+}
+
+// Analyze interactions
+function analyzeInteractions() {
+  const interactions = {
+    buttons: document.querySelectorAll('button').length,
+    links: document.querySelectorAll('a').length,
+    forms: document.querySelectorAll('form').length,
+    inputs: document.querySelectorAll('input, textarea, select').length,
+    modals: document.querySelectorAll('[class*="modal"], [class*="popup"], [class*="dialog"]').length
+  };
+  
+  return interactions;
+}
+
+// Analyze interaction patterns
+function analyzeInteractionPatterns() {
+  const patterns = {
+    walletMethods: detectWalletMethods(),
+    transactionPatterns: detectTransactionPatterns(),
+    signaturePatterns: detectSignaturePatterns(),
+    networkSwitching: detectNetworkSwitching()
+  };
+  
+  return patterns;
+}
+
+// Detect transaction patterns
+function detectTransactionPatterns() {
+  const patterns = [];
+  const content = document.body.textContent.toLowerCase();
+  
+  const transactionKeywords = [
+    'swap', 'trade', 'buy', 'sell', 'transfer', 'send', 'approve',
+    'stake', 'unstake', 'claim', 'mint', 'burn', 'bridge'
   ];
   
-  walletMethods.forEach(method => {
-    if (scriptContent.includes(method)) {
-      methods.push(method);
+  transactionKeywords.forEach(keyword => {
+    if (content.includes(keyword)) {
+      patterns.push(keyword);
     }
   });
   
-  return methods;
+  return patterns;
 }
 
-// Analyze UI complexity
-function analyzeUIComplexity() {
-  const complexity = {
-    totalElements: document.querySelectorAll('*').length,
-    forms: document.querySelectorAll('form').length,
-    inputs: document.querySelectorAll('input').length,
-    buttons: document.querySelectorAll('button').length,
-    modals: document.querySelectorAll('[class*="modal"], [class*="popup"]').length,
-    animations: document.querySelectorAll('[class*="animate"], [style*="animation"]').length
+// Detect signature patterns
+function detectSignaturePatterns() {
+  const scriptContent = Array.from(document.scripts)
+    .map(script => script.textContent || '')
+    .join(' ');
+  
+  const signatureMethods = [
+    'personal_sign',
+    'eth_signTypedData',
+    'eth_signTypedData_v3',
+    'eth_signTypedData_v4',
+    'eth_sign'
+  ];
+  
+  const detectedMethods = signatureMethods.filter(method => 
+    scriptContent.includes(method)
+  );
+  
+  return detectedMethods;
+}
+
+// Detect network switching
+function detectNetworkSwitching() {
+  const scriptContent = Array.from(document.scripts)
+    .map(script => script.textContent || '')
+    .join(' ');
+  
+  const networkMethods = [
+    'wallet_addEthereumChain',
+    'wallet_switchEthereumChain',
+    'wallet_requestPermissions'
+  ];
+  
+  const detectedMethods = networkMethods.filter(method => 
+    scriptContent.includes(method)
+  );
+  
+  return detectedMethods;
+}
+
+// Analyze permissions
+function analyzePermissions() {
+  const permissions = {
+    camera: checkPermission('camera'),
+    microphone: checkPermission('microphone'),
+    location: checkPermission('geolocation'),
+    notifications: checkPermission('notifications'),
+    clipboard: checkPermission('clipboard-read')
   };
   
-  return complexity;
+  return permissions;
 }
 
-// Check for transaction preview functionality
-function checkTransactionPreview() {
-  const previewSelectors = [
-    '[class*="preview"]',
-    '[class*="summary"]',
-    '[class*="review"]',
-    '[id*="preview"]',
-    '[data-testid*="preview"]'
-  ];
-  
-  return previewSelectors.some(selector => 
-    document.querySelector(selector) !== null
-  );
+// Check specific permission
+function checkPermission(permission) {
+  try {
+    if (navigator.permissions) {
+      return navigator.permissions.query({ name: permission })
+        .then(result => result.state)
+        .catch(() => 'unknown');
+    }
+  } catch (e) {}
+  return 'unknown';
 }
 
-// Check for gas estimation
-function checkGasEstimation() {
-  const gasSelectors = [
-    '[class*="gas"]',
-    '[class*="fee"]',
-    '[id*="gas"]',
-    '[data-testid*="gas"]'
-  ];
-  
-  const content = document.body.innerText.toLowerCase();
-  return gasSelectors.some(selector => document.querySelector(selector) !== null) ||
-         content.includes('gas') || content.includes('gwei') || content.includes('fee');
+// Notify background of account access
+async function notifyAccountAccess(accounts) {
+  try {
+    await sendMessageToBackground({
+      type: 'ACCOUNT_ACCESS',
+      data: {
+        accounts,
+        url: window.location.href,
+        timestamp: Date.now()
+      }
+    });
+  } catch (error) {
+    logError('Failed to notify account access:', error);
+  }
 }
 
 // Legacy provider support
@@ -1107,22 +1391,6 @@ function extractPageTransactionData() {
   }
 }
 
-// Notify background of account access
-async function notifyAccountAccess(accounts) {
-  try {
-    await sendMessageToBackground({
-      type: 'ACCOUNT_ACCESS',
-      data: {
-        accounts,
-        url: window.location.href,
-        timestamp: Date.now()
-      }
-    });
-  } catch (error) {
-    logError('Failed to notify account access:', error);
-  }
-}
-
 // Check for code obfuscation (simple heuristic)
 function checkForObfuscation() {
   try {
@@ -1183,96 +1451,407 @@ function getExternalDomains() {
   }
 }
 
-// Initialize the content script
-async function initialize() {
-  if (isInitialized) {
-    logDebug('Content script already initialized');
-    return;
+// Detect framework used by the dApp
+function detectFramework() {
+  const scripts = Array.from(document.scripts).map(s => s.src || s.textContent || '').join(' ');
+  const content = document.documentElement.innerHTML;
+  
+  // Check for React
+  if (window.React || window.ReactDOM || content.includes('data-reactroot') || 
+      content.includes('__REACT_DEVTOOLS_GLOBAL_HOOK__') || scripts.includes('react')) {
+    return 'React';
   }
   
-  try {
-    logInfo('Initializing Web3 Guardian content script...');
+  // Check for Vue
+  if (window.Vue || content.includes('v-') || content.includes('data-v-') || 
+      scripts.includes('vue')) {
+    return 'Vue.js';
+  }
+  
+  // Check for Angular
+  if (window.ng || content.includes('ng-') || content.includes('_ngcontent') || 
+      scripts.includes('angular')) {
+    return 'Angular';
+  }
+  
+  // Check for Svelte
+  if (content.includes('svelte-') || scripts.includes('svelte')) {
+    return 'Svelte';
+  }
+  
+  // Check for Next.js
+  if (window.__NEXT_DATA__ || content.includes('__NEXT_DATA__') || 
+      scripts.includes('next')) {
+    return 'Next.js';
+  }
+  
+  // Check for Nuxt.js
+  if (window.__NUXT__ || content.includes('__NUXT__') || scripts.includes('nuxt')) {
+    return 'Nuxt.js';
+  }
+  
+  return 'Unknown';
+}
+
+// Detect build tool
+function detectBuildTool() {
+  const scripts = Array.from(document.scripts).map(s => s.src).join('');
+  const content = document.head.innerHTML;
+  
+  if (scripts.includes('webpack') || content.includes('webpack')) return 'Webpack';
+  if (scripts.includes('vite') || content.includes('vite')) return 'Vite';
+  if (scripts.includes('parcel')) return 'Parcel';
+  if (scripts.includes('rollup')) return 'Rollup';
+  if (scripts.includes('snowpack')) return 'Snowpack';
+  
+  return 'Unknown';
+}
+
+// Analyze UI complexity
+function analyzeUIComplexity() {
+  return {
+    buttons: document.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"]').length,
+    forms: document.querySelectorAll('form').length,
+    inputs: document.querySelectorAll('input, textarea, select').length,
+    links: document.querySelectorAll('a[href]').length,
+    images: document.querySelectorAll('img').length,
+    interactiveElements: document.querySelectorAll('button, a, input, select, textarea, [onclick], [role="button"]').length,
+    totalElements: document.querySelectorAll('*').length,
+    scriptsCount: document.scripts.length,
+    stylesheetsCount: document.styleSheets.length
+  };
+}
+
+// Detect wallet methods used
+function detectWalletMethods() {
+  const scriptContent = Array.from(document.scripts)
+    .map(script => script.textContent || '')
+    .join(' ');
+  
+  const walletMethods = [
+    'eth_requestAccounts',
+    'eth_accounts', 
+    'eth_sendTransaction',
+    'eth_signTransaction',
+    'eth_sign',
+    'personal_sign',
+    'eth_signTypedData',
+    'eth_signTypedData_v3',
+    'eth_signTypedData_v4',
+    'wallet_addEthereumChain',
+    'wallet_switchEthereumChain',
+    'wallet_requestPermissions',
+    'eth_getBalance',
+    'eth_call',
+    'eth_estimateGas',
+    'eth_gasPrice',
+    'eth_getTransactionReceipt',
+    'eth_getTransactionByHash'
+  ];
+  
+  const detectedMethods = walletMethods.filter(method => 
+    scriptContent.includes(method) || scriptContent.includes(`"${method}"`) || scriptContent.includes(`'${method}'`)
+  );
+  
+  return detectedMethods;
+}
+
+// Extract social links
+function extractSocialLinks() {
+  const socialPlatforms = {
+    twitter: ['twitter.com', 't.co'],
+    github: ['github.com'],
+    discord: ['discord.gg', 'discord.com'],
+    telegram: ['t.me', 'telegram.me'],
+    medium: ['medium.com'],
+    reddit: ['reddit.com'],
+    linkedin: ['linkedin.com'],
+    youtube: ['youtube.com', 'youtu.be']
+  };
+  
+  const socialLinks = {};
+  
+  Object.entries(socialPlatforms).forEach(([platform, domains]) => {
+    const links = Array.from(document.querySelectorAll('a[href]'))
+      .map(a => a.href)
+      .filter(href => domains.some(domain => href.includes(domain)));
     
-    // Detect Web3 provider
-    originalProvider = await detectAndInterceptWeb3Provider();
-    logInfo('Web3 provider detected:', originalProvider.constructor.name);
+    if (links.length > 0) {
+      socialLinks[platform] = links;
+    }
+  });
+  
+  return socialLinks;
+}
+
+// Extract GitHub information
+function extractGithubInfo() {
+  const githubLinks = Array.from(document.querySelectorAll('a[href*="github.com"]'))
+    .map(a => a.href);
+  
+  const repoLinks = githubLinks.filter(link => 
+    link.match(/github\.com\/[^\/]+\/[^\/]+\/?$/)
+  );
+  
+  return {
+    hasGithubLinks: githubLinks.length > 0,
+    repositoryLinks: repoLinks,
+    totalGithubLinks: githubLinks.length
+  };
+}
+
+// Extract manifest information
+function extractManifestInfo() {
+  const manifestLink = document.querySelector('link[rel="manifest"]');
+  const appleTouchIcon = document.querySelector('link[rel="apple-touch-icon"]');
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  
+  return {
+    hasManifest: !!manifestLink,
+    manifestUrl: manifestLink?.href,
+    hasAppleTouchIcon: !!appleTouchIcon,
+    themeColor: themeColor?.content,
+    isPWA: !!(manifestLink && appleTouchIcon)
+  };
+}
+
+// Check Content Security Policy
+function checkContentSecurityPolicy() {
+  const cspMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+  const cspHeader = document.querySelector('meta[name="Content-Security-Policy"]');
+  
+  return {
+    hasCSP: !!(cspMeta || cspHeader),
+    cspContent: cspMeta?.content || cspHeader?.content || null,
+    isStrict: false // Would need actual CSP parsing to determine
+  };
+}
+
+// Check Subresource Integrity
+function checkSubresourceIntegrity() {
+  const scriptsWithIntegrity = Array.from(document.scripts)
+    .filter(script => script.integrity);
+  
+  const linksWithIntegrity = Array.from(document.querySelectorAll('link[integrity]'));
+  
+  return {
+    totalScripts: document.scripts.length,
+    scriptsWithSRI: scriptsWithIntegrity.length,
+    totalLinks: document.querySelectorAll('link').length,
+    linksWithSRI: linksWithIntegrity.length,
+    sriCoverage: document.scripts.length > 0 ? 
+      (scriptsWithIntegrity.length / document.scripts.length) * 100 : 0
+  };
+}
+
+// Detect suspicious patterns
+function detectSuspiciousPatterns() {
+  const suspiciousPatterns = [];
+  const content = document.body.textContent.toLowerCase();
+  const scripts = Array.from(document.scripts)
+    .map(script => script.textContent || '')
+    .join(' ');
+  
+  // Check for suspicious keywords
+  const suspiciousKeywords = [
+    'phishing', 'scam', 'fake', 'steal', 'hack', 'private key',
+    'seed phrase', 'mnemonic', 'wallet recovery', 'urgent action required',
+    'limited time', 'act now', 'verify account', 'suspended account',
+    'click here immediately', 'congratulations you won'
+  ];
+  
+  suspiciousKeywords.forEach(keyword => {
+    if (content.includes(keyword)) {
+      suspiciousPatterns.push(`suspicious_keyword_${keyword.replace(/\s+/g, '_')}`);
+    }
+  });
+  
+  // Check for obfuscated JavaScript
+  if (scripts.includes('eval(') || scripts.includes('Function(')) {
+    suspiciousPatterns.push('obfuscated_javascript');
+  }
+  
+  // Check for multiple redirects in history
+  if (window.history.length > 5) {
+    suspiciousPatterns.push('multiple_redirects');
+  }
+  
+  // Check for suspicious domains
+  const domain = window.location.hostname;
+  if (domain.includes('xn--') || domain.match(/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/)) {
+    suspiciousPatterns.push('suspicious_domain');
+  }
+  
+  return suspiciousPatterns;
+}
+
+// Detect trust indicators
+function detectTrustIndicators() {
+  const indicators = [];
+  
+  // HTTPS
+  if (window.location.protocol === 'https:') {
+    indicators.push('https_enabled');
+  }
+  
+  // Valid SSL certificate (basic check)
+  if (window.location.protocol === 'https:' && !document.querySelector('body[data-ssl-error]')) {
+    indicators.push('valid_ssl');
+  }
+  
+  // CSP header
+  if (document.querySelector('meta[http-equiv="Content-Security-Policy"]')) {
+    indicators.push('csp_enabled');
+  }
+  
+  // No mixed content
+  const mixedContent = Array.from(document.querySelectorAll('script[src], img[src], link[href]'))
+    .some(el => (el.src || el.href)?.startsWith('http://'));
+  if (!mixedContent && window.location.protocol === 'https:') {
+    indicators.push('no_mixed_content');
+  }
+  
+  // Has privacy policy
+  const privacyLink = document.querySelector('a[href*="privacy"], a[href*="terms"]');
+  if (privacyLink) {
+    indicators.push('has_privacy_policy');
+  }
+  
+  // Professional domain
+  const domain = window.location.hostname;
+  if (!domain.includes('xn--') && !domain.match(/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/)) {
+    indicators.push('professional_domain');
+  }
+  
+  return indicators;
+}
+
+// Analyze external scripts
+function analyzeExternalScripts() {
+  const scripts = Array.from(document.scripts)
+    .filter(script => script.src)
+    .map(script => {
+      try {
+        const url = new URL(script.src);
+        return {
+          src: script.src,
+          domain: url.hostname,
+          hasIntegrity: !!script.integrity,
+          isThirdParty: url.hostname !== window.location.hostname,
+          async: script.async,
+          defer: script.defer,
+          crossOrigin: script.crossOrigin || null
+        };
+      } catch (e) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+  
+  const thirdPartyScripts = scripts.filter(s => s.isThirdParty);
+  const scriptsWithoutSRI = thirdPartyScripts.filter(s => !s.hasIntegrity);
+  
+  return {
+    totalScripts: scripts.length,
+    thirdPartyScripts: thirdPartyScripts.length,
+    scriptsWithoutSRI: scriptsWithoutSRI.length,
+    uniqueDomains: [...new Set(thirdPartyScripts.map(s => s.domain))],
+    riskScore: scriptsWithoutSRI.length > 0 ? 'medium' : 'low'
+  };
+}
+
+// Detect provider type
+function detectProviderType() {
+  if (!window.ethereum) return 'none';
+  
+  if (window.ethereum.isMetaMask) return 'MetaMask';
+  if (window.ethereum.isCoinbaseWallet) return 'Coinbase Wallet';
+  if (window.ethereum.isFrame) return 'Frame';
+  if (window.ethereum.isTrust) return 'Trust Wallet';
+  if (window.ethereum.isImToken) return 'imToken';
+  if (window.ethereum.isTokenPocket) return 'TokenPocket';
+  if (window.ethereum.isMathWallet) return 'MathWallet';
+  if (window.ethereum.isAlphaWallet) return 'AlphaWallet';
+  if (window.ethereum.isBraveWallet) return 'Brave Wallet';
+  if (window.ethereum.isRabby) return 'Rabby';
+  if (window.ethereum.isOkxWallet) return 'OKX Wallet';
+  
+  // Check for WalletConnect
+  if (window.WalletConnect || window.ethereum.isWalletConnect) return 'WalletConnect';
+  
+  return 'Unknown';
+}
+
+// Setup mutation observer for dynamic content
+function setupMutationObserver() {
+  if (!window.MutationObserver) return;
+  
+  const observer = new MutationObserver((mutations) => {
+    let hasSignificantChanges = false;
     
-    // Create and install proxy
-    providerProxy = createProviderProxy(originalProvider);
-    
-    // Replace the global provider with our proxy
-    Object.defineProperty(window, 'ethereum', {
-      value: providerProxy,
-      writable: false,
-      configurable: false
+    mutations.forEach((mutation) => {
+      if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+        // Check if added nodes contain Web3-related content
+        Array.from(mutation.addedNodes).forEach(node => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const element = node;
+            const text = element.textContent?.toLowerCase() || '';
+            const className = element.className?.toLowerCase() || '';
+            
+            if (text.includes('connect') || text.includes('wallet') || 
+                text.includes('transaction') || text.includes('swap') ||
+                className.includes('wallet') || className.includes('connect')) {
+              hasSignificantChanges = true;
+            }
+          }
+        });
+      }
     });
     
-    // Listen for account and chain changes
-    setupProviderEventListeners();
-    
-    isInitialized = true;
-    logInfo('✅ Web3 Guardian content script initialized successfully');
-    
-    // Notify background script
-    try {
-      await sendMessageToBackground({ type: 'CONTENT_SCRIPT_READY' }, 2000);
-    } catch (error) {
-      logError('Failed to notify background script:', error);
+    if (hasSignificantChanges) {
+      logDebug('Significant DOM changes detected, re-analyzing...');
+      // Debounce re-analysis
+      clearTimeout(window.web3GuardianReanalysisTimeout);
+      window.web3GuardianReanalysisTimeout = setTimeout(() => {
+        analyzeDApp().then(dAppInfo => {
+          sendMessageToBackground({
+            type: 'DAPP_UPDATED',
+            data: dAppInfo
+          }).catch(err => logError('Failed to send updated dApp info:', err));
+        });
+      }, 2000);
     }
-    
-  } catch (error) {
-    logError('Failed to initialize Web3 Guardian:', error);
+  });
+  
+  // Start observing
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: false,
+    characterData: false
+  });
+  
+  return observer;
+}
+
+// Add mutation observer to initialization
+async function initializeWithMutationObserver() {
+  await initialize();
+  
+  // Setup mutation observer for dynamic content changes
+  if (document.readyState === 'complete') {
+    setupMutationObserver();
+  } else {
+    window.addEventListener('load', setupMutationObserver);
   }
 }
 
-// Setup provider event listeners
-function setupProviderEventListeners() {
-  if (!originalProvider) return;
-  
-  // Listen for account changes
-  originalProvider.on?.('accountsChanged', (accounts) => {
-    logInfo('Accounts changed:', accounts);
-    chrome.runtime.sendMessage({
-      type: 'ACCOUNTS_CHANGED',
-      accounts
-    }).catch(err => logError('Failed to notify account change:', err));
-  });
-  
-  // Listen for chain changes
-  originalProvider.on?.('chainChanged', (chainId) => {
-    logInfo('Chain changed:', chainId);
-    chrome.runtime.sendMessage({
-      type: 'CHAIN_CHANGED',
-      chainId
-    }).catch(err => logError('Failed to notify chain change:', err));
-  });
-  
-  // Listen for connection events
-  originalProvider.on?.('connect', (connectInfo) => {
-    logInfo('Provider connected:', connectInfo);
-  });
-  
-  originalProvider.on?.('disconnect', (error) => {
-    logInfo('Provider disconnected:', error);
-  });
-}
-
-// Initialize when DOM is ready
+// Override the initialize call
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initialize);
+  document.addEventListener('DOMContentLoaded', initializeWithMutationObserver);
 } else {
-  initialize();
+  initializeWithMutationObserver();
 }
 
 // Also try to initialize immediately in case provider is already available
-setTimeout(initialize, 100);
-
-// Export functions for testing
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    initialize,
-    detectAndInterceptWeb3Provider,
-    extractPageTransactionData,
-    getTransactionStatus
-  };
-}
+setTimeout(initializeWithMutationObserver, 100);

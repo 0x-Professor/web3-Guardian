@@ -1108,97 +1108,174 @@ async function analyzeFunctionCall(data, contractInfo) {
     const selector = data.slice(0, 10);
     
     // Parse ABI to find matching function
-    let abi = [];
+    let abi = null;
     try {
-      abi = JSON.parse(contractInfo.abi);
+      abi = typeof contractInfo.abi === 'string' ? JSON.parse(contractInfo.abi) : contractInfo.abi;
     } catch (e) {
+      logError('Failed to parse contract ABI:', e);
       return { selector, error: 'Invalid ABI' };
     }
     
-    // Find function by selector
+    if (!Array.isArray(abi)) {
+      return { selector, error: 'ABI is not an array' };
+    }
+    
+    // Find the function
     const functions = abi.filter(item => item.type === 'function');
     let matchedFunction = null;
     
     for (const func of functions) {
-      // Calculate function selector (simplified)
+      // Create function signature for comparison
       const signature = `${func.name}(${func.inputs.map(input => input.type).join(',')})`;
-      // In a real implementation, you'd use keccak256 hash
-      if (signature.includes('transfer') && selector.includes('a9059cbb')) {
-        matchedFunction = func;
-        break;
-      }
-      if (signature.includes('approve') && selector.includes('095ea7b3')) {
+      const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(signature));
+      const computedSelector = '0x' + Array.from(new Uint8Array(hash.slice(0, 4)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+      
+      if (computedSelector === selector) {
         matchedFunction = func;
         break;
       }
     }
     
-    return {
+    const analysis = {
       selector,
       functionName: matchedFunction?.name || 'unknown',
-      signature: matchedFunction ? `${matchedFunction.name}(${matchedFunction.inputs.map(input => input.type).join(',')})` : null,
-      inputs: matchedFunction?.inputs || [],
-      isRisky: ['approve', 'transferFrom', 'setApprovalForAll'].includes(matchedFunction?.name)
+      functionSignature: matchedFunction ? 
+        `${matchedFunction.name}(${matchedFunction.inputs.map(input => `${input.type} ${input.name}`).join(', ')})` : 
+        'unknown',
+      riskLevel: 'low',
+      riskFactors: []
     };
     
+    // Analyze function risk
+    if (matchedFunction?.name) {
+      const dangerousFunctions = [
+        'transfer', 'transferFrom', 'approve', 'withdraw', 
+        'emergencyWithdraw', 'drain', 'destroy', 'selfdestruct',
+        'changeOwner', 'transferOwnership', 'renounceOwnership'
+      ];
+      
+      if (dangerousFunctions.some(dangerous => 
+        matchedFunction.name.toLowerCase().includes(dangerous.toLowerCase()))) {
+        analysis.riskLevel = 'high';
+        analysis.riskFactors.push('dangerous_function');
+      }
+    }
+    
+    return analysis;
+    
   } catch (error) {
-    return {
-      selector: data.slice(0, 10),
-      error: error.message
-    };
+    logError('Function analysis failed:', error);
+    return { selector: data.slice(0, 10), error: error.message };
   }
 }
 
 async function analyzeSigningMessage(data) {
   try {
     const analysis = {
-      riskLevel: 'low',
-      riskFactors: [],
-      recommendations: []
+      riskLevel: 'medium', // Signing is always at least medium risk
+      riskFactors: ['message_signing'],
+      recommendations: ['🖊️ Review the message carefully before signing'],
+      messageType: data.method || 'unknown'
     };
     
-    const { method, message } = data;
+    // Analyze message content
+    if (data.message) {
+      const message = typeof data.message === 'string' ? data.message : JSON.stringify(data.message);
+      
+      // Check for suspicious content
+      const suspiciousPatterns = [
+        /transfer|send|approve/i,
+        /0x[a-fA-F0-9]{40}/g, // Ethereum addresses
+        /[0-9]+\s*(eth|ether|wei)/i,
+        /permit|allowance/i
+      ];
+      
+      suspiciousPatterns.forEach(pattern => {
+        if (pattern.test(message)) {
+          analysis.riskLevel = 'high';
+          analysis.riskFactors.push('suspicious_message_content');
+        }
+      });
+      
+      // Check message length
+      if (message.length > 1000) {
+        analysis.riskFactors.push('long_message');
+        analysis.recommendations.push('📝 Very long message - ensure you understand what you\'re signing');
+      }
+    }
     
-    // Analyze different signing methods
-    switch (method) {
-      case 'personal_sign':
-        analysis.recommendations.push('📝 Personal message signing - verify the message content');
-        if (typeof message === 'string' && message.length > 1000) {
-          analysis.riskLevel = 'medium';
-          analysis.riskFactors.push('long_message');
-          analysis.recommendations.push('⚠️ Very long message - review carefully');
-        }
-        break;
-        
+    // Method-specific analysis
+    switch (data.method) {
       case 'eth_signTypedData_v4':
-        analysis.riskLevel = 'medium';
-        analysis.recommendations.push('📋 Structured data signing - review all fields carefully');
-        
-        try {
-          const typedData = JSON.parse(message);
-          if (typedData.primaryType === 'Permit') {
-            analysis.riskLevel = 'high';
-            analysis.riskFactors.push('permit_signature');
-            analysis.recommendations.push('🚨 Token permit signature - this grants spending permissions!');
-          }
-        } catch (e) {
-          analysis.riskFactors.push('malformed_typed_data');
-        }
+        analysis.riskLevel = 'high';
+        analysis.riskFactors.push('typed_data_signing');
+        analysis.recommendations.push('🔒 Typed data signing can authorize token transfers - be very careful');
         break;
-        
-      default:
-        analysis.riskLevel = 'medium';
-        analysis.recommendations.push('❓ Unknown signing method - exercise caution');
+      case 'personal_sign':
+        analysis.recommendations.push('✍️ Simple message signing - generally safe but verify the content');
+        break;
     }
     
     return analysis;
     
   } catch (error) {
+    logError('Signing analysis failed:', error);
     return {
       riskLevel: 'unknown',
       riskFactors: ['analysis_failed'],
-      recommendations: ['Unable to analyze signing request'],
-      error: error.message
+      recommendations: ['Unable to analyze signing request - exercise extreme caution'],
+      messageType: 'unknown'
     };
   }
+}
+
+// Enhanced tab and content script communication
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url) {
+    // Clean up any old data for this tab
+    if (connectedTabs.has(tabId)) {
+      const tabInfo = connectedTabs.get(tabId);
+      if (tabInfo.url !== tab.url) {
+        // URL changed, reset connection status
+        connectedTabs.set(tabId, {
+          url: tab.url,
+          timestamp: Date.now(),
+          ready: false,
+          connected: false
+        });
+      }
+    }
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  // Clean up when tab is closed
+  connectedTabs.delete(tabId);
+  
+  // Clean up any pending transactions for this tab
+  for (const [messageId, tx] of pendingTransactions) {
+    if (tx.tabId === tabId) {
+      pendingTransactions.delete(messageId);
+    }
+  }
+});
+
+// Enhanced error handling and logging
+chrome.runtime.onSuspend.addListener(() => {
+  logInfo('🔄 Background script suspending, cleaning up...');
+  // Perform any necessary cleanup
+});
+
+// Export for testing
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    handleAnalyzeTransaction,
+    handleAnalyzeWalletConnection,
+    handleAnalyzeContractInteraction,
+    performTransactionAnalysis,
+    analyzeDAppLegitimacy,
+    analyzeFunctionCall,
+    analyzeSigningMessage
+  };
 }
