@@ -178,11 +178,22 @@ const UI = {
     
     // Domain info
     if (transaction.url) {
-      const domain = new URL(transaction.url).hostname;
-      details.push(`<div class="detail-row">
-        <span class="label">dApp:</span>
-        <span class="value">${domain}</span>
-      </div>`);
+      try {
+        const domain = new URL(transaction.url).hostname;
+        details.push(`<div class="detail-row">
+          <span class="label">dApp:</span>
+          <span class="value">${domain}</span>
+        </div>`);
+      } catch (error) {
+        // Handle invalid URLs gracefully
+        const domain = transaction.url.includes('://') ? 
+          transaction.url.split('://')[1].split('/')[0] : 
+          transaction.url.split('/')[0];
+        details.push(`<div class="detail-row">
+          <span class="label">dApp:</span>
+          <span class="value">${domain}</span>
+        </div>`);
+      }
     }
     
     this.elements.detailsElement.innerHTML = details.join('');
