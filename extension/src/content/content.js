@@ -1,11 +1,10 @@
-// Content script that runs in the context of web pages
-// Intercepts and analyzes Web3 transactions
+import { logInfo, logError } from "../utils/logger.js";
 
 console.log('Web3 Guardian content script loaded on', window.location.href);
 console.log('Content script injected at:', new Date().toISOString());
 
 // Store the original provider
-let ORIGINAL_PROVIDER = window.ethereum;
+let originalProvider = window.ethereum;
 
 // Initialize the content script
 function initialize() {
@@ -29,33 +28,30 @@ function initialize() {
 }
 
 
-// Add a message listener for the background script
+// Set up message listeners for background script communication
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Content script received message:', request.type);
+  logInfo("Content script received message", { type: request.type, sender });
   
-  if (request.type === 'PING') {
-    console.log('PING received, responding with PONG');
-    sendResponse({ type: 'PONG' });
+  if (request.type === "PING") {
+    logInfo("PING received, responding with PONG");
+    sendResponse({ type: "PONG" });
     return true;
   }
-  
-  if (request.type === 'GET_TRANSACTION_STATUS') {
+
+  if (request.type === "GET_TRANSACTION_STATUS") {
     try {
-      const transactionData = getTransactionData();
-      console.log('Sending transaction data to background');
-      sendResponse({
-        success: true,
-        data: transactionData,
-        timestamp: new Date().toISOString()
-      });
+      const txData = {
+        url: window.location.href,
+        accounts: window.ethereum?.selectedAddress ? [window.ethereum.selectedAddress] : [],
+        timestamp: new Date().toISOString(),
+      };
+      logInfo("Sending transaction status", txData);
+      sendResponse({ success: true, data: txData });
     } catch (error) {
-      console.error('Error getting transaction status:', error);
-      sendResponse({
-        success: false,
-        error: error.message,
-        timestamp: new Date().toISOString()
-      });
+      logError("Error getting transaction status", error);
+      sendResponse({ success: false, error: error.message, timestamp: new Date().toISOString() });
     }
+    return true;
     return true; // Keep the message channel open for async response
   }
   
@@ -451,14 +447,14 @@ function setupWeb3Interception() {
   }
 }
 
-// Initialize the content script
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', setupWeb3Interception);
+// Initialize on page load
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initialize);
 } else {
-  setupWeb3Interception();
+  initialize();
 }
 
-// Listen for Web3 injection
+// Observe for dynamic provider injection
 const observer = new MutationObserver((mutations) => {
   if (window.ethereum) {
     setupWeb3Interception();
