@@ -25,6 +25,7 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
-    "web3": "^4.10.0"
+    "web3": "^4.10.0",
+    "ethers": "^5.7.2"
   }
 }
