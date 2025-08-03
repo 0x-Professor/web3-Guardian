@@ -5,7 +5,65 @@ console.log('Web3 Guardian content script loaded on', window.location.href);
 console.log('Content script injected at:', new Date().toISOString());
 
 // Store the original provider
-const ORIGINAL_PROVIDER = window.ethereum;
+let ORIGINAL_PROVIDER = window.ethereum;
+
+// Add a message listener for the background script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('Content script received message:', request.type);
+  
+  if (request.type === 'PING') {
+    console.log('PING received, responding with PONG');
+    sendResponse({ type: 'PONG' });
+    return true;
+  }
+  
+  if (request.type === 'GET_TRANSACTION_STATUS') {
+    try {
+      const transactionData = getTransactionData();
+      console.log('Sending transaction data to background');
+      sendResponse({
+        success: true,
+        data: transactionData,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error getting transaction status:', error);
+      sendResponse({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+    return true; // Keep the message channel open for async response
+  }
+  
+  return false;
+});
+
+// Notify the background script that we're ready
+console.log('Content script initialized');
+
+// Store the original provider if it exists
+if (window.ethereum) {
+  console.log('Original Web3 provider detected:', window.ethereum);
+  ORIGINAL_PROVIDER = window.ethereum;
+} else {
+  console.warn('No Web3 provider detected on page load');
+  // Try to detect if Web3 is injected later
+  const checkForProvider = setInterval(() => {
+    if (window.ethereum) {
+      console.log('Web3 provider detected after delay');
+      ORIGINAL_PROVIDER = window.ethereum;
+      initProviderWrapper();
+      clearInterval(checkForProvider);
+    }
+  }, 1000);
+  
+  // Stop checking after 10 seconds
+  setTimeout(() => {
+    clearInterval(checkForProvider);
+  }, 10000);
+}
 
 // Function to wrap the provider methods
 function wrapProvider(provider) {
