@@ -1,8 +1,10 @@
+const webpack = require('webpack');
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 const fs = require('fs');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 // Set paths
 const SRC_DIR = path.resolve(__dirname, 'src');
@@ -21,6 +23,8 @@ if (fs.existsSync(manifestSrc) && !fs.existsSync(manifestDest)) {
 }
 
 module.exports = {
+  mode: 'development',
+  devtool: 'cheap-module-source-map',
   entry: {
     popup: './src/popup/popup.js',
     content: './src/content/content.js',
@@ -59,6 +63,12 @@ module.exports = {
       filename: 'popup.html',
       chunks: ['popup'],
     }),
+    new webpack.DefinePlugin({
+      'process.env.ALCHEMY_API_KEY': JSON.stringify(process.env.ALCHEMY_API_KEY),
+      'process.env.ETHERSCAN_MAINNET_API_KEY': JSON.stringify(process.env.ETHERSCAN_MAINNET_API_KEY),
+      'process.env.BACKEND_URL': JSON.stringify(process.env.BACKEND_URL),
+      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
+    }),
     new CopyPlugin({
       patterns: [
         { 
@@ -79,5 +89,4 @@ module.exports = {
   resolve: {
     extensions: ['.js', '.jsx'],
   },
-  devtool: 'source-map',
 };
