@@ -301,10 +301,12 @@ function handleChainChanged(request, sender) {
 }
 
 function handlePing(request, sender) {
+  console.log('🏓 PING received from:', sender.tab?.url || 'popup');
   return { 
     type: 'PONG', 
     timestamp: Date.now(),
-    version: chrome.runtime.getManifest().version
+    version: chrome.runtime.getManifest().version,
+    success: true
   };
 }
 
