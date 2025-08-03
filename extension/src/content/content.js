@@ -1,120 +1,82 @@
-import { logInfo, logError } from "../utils/logger.js";
+import { logInfo, logError, logDebug } from "../utils/logger.js";
 
-console.log('Web3 Guardian content script loaded on', window.location.href);
-console.log('Content script injected at:', new Date().toISOString());
+// Content script state
+let isInitialized = false;
+let originalProvider = null;
+let providerProxy = null;
+let transactionQueue = new Map();
+let messageId = 0;
 
-// Store the original provider
-let originalProvider = window.ethereum;
+console.log('🛡️ Web3 Guardian content script loaded on', window.location.href);
 
-// Initialize the content script
-function initialize() {
-  if (!window.ethereum) {
-    logError("No Web3 provider detected on page load");
-    // Poll for provider injection
-    const checkForProvider = setInterval(() => {
+// EIP-1193 compliant provider detection
+function detectWeb3Provider() {
+  // Check for existing provider
+  if (window.ethereum) {
+    return window.ethereum;
+  }
+  
+  // Listen for provider injection (some wallets inject asynchronously)
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('No Web3 provider detected within timeout'));
+    }, 3000);
+    
+    const checkProvider = () => {
       if (window.ethereum) {
-        logInfo("Web3 provider detected after delay");
-        originalProvider = window.ethereum;
-        setupWeb3Interception();
-        clearInterval(checkForProvider);
+        clearTimeout(timeout);
+        resolve(window.ethereum);
       }
-    }, 1000);
-    // Stop polling after 10 seconds
-    setTimeout(() => clearInterval(checkForProvider), 10000);
-  } else {
-    logInfo("Original Web3 provider detected", window.ethereum);
-    setupWeb3Interception();
-  }
+    };
+    
+    // Check immediately and then poll
+    checkProvider();
+    const interval = setInterval(checkProvider, 100);
+    
+    // Listen for provider injection events
+    window.addEventListener('ethereum#initialized', () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+      resolve(window.ethereum);
+    });
+    
+    // Some providers use different events
+    document.addEventListener('DOMContentLoaded', checkProvider);
+  });
 }
 
-
-// Set up message listeners for background script communication
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  logInfo("Content script received message", { type: request.type, sender });
-  
-  if (request.type === "PING") {
-    logInfo("PING received, responding with PONG");
-    sendResponse({ type: "PONG" });
-    return true;
-  }
-
-  if (request.type === "GET_TRANSACTION_STATUS") {
-    try {
-      const txData = {
-        url: window.location.href,
-        accounts: window.ethereum?.selectedAddress ? [window.ethereum.selectedAddress] : [],
-        timestamp: new Date().toISOString(),
-      };
-      logInfo("Sending transaction status", txData);
-      sendResponse({ success: true, data: txData });
-    } catch (error) {
-      logError("Error getting transaction status", error);
-      sendResponse({ success: false, error: error.message, timestamp: new Date().toISOString() });
-    }
-    return true;
-    return true; // Keep the message channel open for async response
-  }
-  
-  return false;
-});
-
-// Notify the background script that we're ready
-console.log('Content script initialized');
-
-// Store the original provider if it exists
-if (window.ethereum) {
-  console.log('Original Web3 provider detected:', window.ethereum);
-  ORIGINAL_PROVIDER = window.ethereum;
-} else {
-  console.warn('No Web3 provider detected on page load');
-  // Try to detect if Web3 is injected later
-  const checkForProvider = setInterval(() => {
-    if (window.ethereum) {
-      console.log('Web3 provider detected after delay');
-      ORIGINAL_PROVIDER = window.ethereum;
-      initProviderWrapper();
-      clearInterval(checkForProvider);
-    }
-  }, 1000);
-  
-  // Stop checking after 10 seconds
-  setTimeout(() => {
-    clearInterval(checkForProvider);
-  }, 10000);
-}
-
-// Function to wrap the provider methods
-function wrapProvider(provider) {
-  if (!provider) return null;
-  
-  // Create a proxy for the provider
+// Create a proxy for the Web3 provider
+function createProviderProxy(originalProvider) {
   const handler = {
     get(target, prop) {
-      // Intercept method calls
-      if (typeof target[prop] === 'function') {
-        return new Proxy(target[prop], {
-          apply: (target, thisArg, args) => {
-            console.log(`Intercepted ${prop} call:`, args);
-            
-            // Handle different method types
-            switch (prop) {
-              case 'request':
-                return handleRequest(args[0]);
-              case 'send':
-              case 'sendAsync':
-                return handleLegacyRequest(args[0], args[1]);
-              default:
-                return target.apply(thisArg, args);
-            }
-          }
-        });
+      const value = target[prop];
+      
+      // Intercept the request method (EIP-1193)
+      if (prop === 'request') {
+        return async function(args) {
+          return await handleProviderRequest.call(target, args, 'request');
+        };
       }
-      return target[prop];
+      
+      // Intercept legacy methods
+      if (prop === 'send' || prop === 'sendAsync') {
+        return function(...args) {
+          return handleLegacyProviderCall.call(target, prop, args);
+        };
+      }
+      
+      // Bind functions to original context
+      if (typeof value === 'function') {
+        return value.bind(target);
+      }
+      
+      return value;
     },
+    
     set(target, prop, value) {
-      // Prevent overwriting our wrapped methods
-      if (prop === 'request' || prop === 'send' || prop === 'sendAsync') {
-        console.warn(`Prevented overwrite of ${prop} method`);
+      // Prevent overriding our intercepted methods
+      if (['request', 'send', 'sendAsync'].includes(prop)) {
+        logDebug(`Prevented override of ${prop} method`);
         return true;
       }
       target[prop] = value;
@@ -122,344 +84,410 @@ function wrapProvider(provider) {
     }
   };
   
-  // Create and return the proxy
-  return new Proxy(provider, handler);
+  return new Proxy(originalProvider, handler);
 }
 
 // Handle EIP-1193 provider requests
-async function handleRequest(request) {
-  console.log('Handling request:', request);
+async function handleProviderRequest(args, method = 'request') {
+  const { method: rpcMethod, params } = args;
   
-  // Intercept account and transaction requests
-  if (request.method === 'eth_requestAccounts' || 
-      request.method === 'eth_accounts') {
-    console.log('Intercepted account access request');
-    // Forward to the original provider
-    return ORIGINAL_PROVIDER.request(request);
+  logDebug(`Intercepted ${method}:`, { rpcMethod, params });
+  
+  // Handle account access requests
+  if (rpcMethod === 'eth_requestAccounts' || rpcMethod === 'eth_accounts') {
+    // Allow wallet connection requests to pass through
+    return await this.request.call(this, args);
   }
   
-  if (request.method === 'eth_sendTransaction' || 
-      request.method === 'eth_signTransaction') {
-    console.log('Intercepted transaction request:', request);
-    
-    try {
-      // Send to background for analysis
-      const response = await chrome.runtime.sendMessage({
-        type: 'ANALYZE_TRANSACTION',
-        data: request.params[0]
-      });
-      
-      console.log('Analysis response:', response);
-      
-      // If transaction is approved, send it to the original provider
-      if (response && response.approved) {
-        console.log('Transaction approved, sending to provider');
-        return ORIGINAL_PROVIDER.request(request);
-      } else {
-        console.log('Transaction rejected by user');
+  // Intercept transaction requests
+  if (rpcMethod === 'eth_sendTransaction' || rpcMethod === 'eth_signTransaction') {
+    const transaction = params?.[0];
+    if (transaction) {
+      const approved = await analyzeAndRequestApproval(transaction, rpcMethod);
+      if (!approved) {
         throw new Error('Transaction rejected by Web3 Guardian');
       }
-    } catch (error) {
-      console.error('Error handling transaction:', error);
-      throw error;
     }
   }
   
-  // Forward all other requests to the original provider
-  return ORIGINAL_PROVIDER.request(request);
+  // Pass through all other requests to the original provider
+  return await this.request.call(this, args);
 }
 
-// Handle legacy provider requests
-function handleLegacyRequest(method, params) {
-  console.log('Handling legacy request:', method, params);
+// Handle legacy provider calls (send/sendAsync)
+function handleLegacyProviderCall(method, args) {
+  const [payload, callback] = args;
   
-  // Convert to EIP-1193 format
-  const request = { method, params };
-  const promise = handleRequest(request);
-  
-  // Convert to callback style if needed
-  if (typeof params === 'function' || Array.isArray(params)) {
-    return promise.then(
-      result => params[1]?.(null, { result }),
-      error => params[1]?.(error, null)
-    );
+  if (payload && (payload.method === 'eth_sendTransaction' || payload.method === 'eth_signTransaction')) {
+    const transaction = payload.params?.[0];
+    if (transaction) {
+      analyzeAndRequestApproval(transaction, payload.method)
+        .then((approved) => {
+          if (approved) {
+            return this[method].call(this, ...args);
+          } else {
+            const error = new Error('Transaction rejected by Web3 Guardian');
+            if (callback) callback(error);
+            else throw error;
+          }
+        })
+        .catch((error) => {
+          if (callback) callback(error);
+          else throw error;
+        });
+      return;
+    }
   }
   
-  return promise;
+  // Pass through non-transaction requests
+  return this[method].call(this, ...args);
 }
 
-// Initialize the provider wrapper
-function initProviderWrapper() {
-  if (!window.ethereum) {
-    console.warn('No Web3 provider detected');
-    return;
-  }
-  
-  console.log('Wrapping Web3 provider');
-  
-  // Wrap the provider
-  const wrappedProvider = wrapProvider(window.ethereum);
-  
-  // Replace the global provider
-  Object.defineProperty(window, 'ethereum', {
-    value: wrappedProvider,
-    configurable: false,
-    writable: false
-  });
-  
-  console.log('Web3 provider wrapped successfully');
-}
-
-// Initialize when the page loads
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initProviderWrapper);
-} else {
-  initProviderWrapper();
-}
-
-// Listen for messages from the popup and background script
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Content script received message:', request.type, 'from:', sender);
-  
-  if (request.type === 'GET_TRANSACTION_STATUS') {
-    try {
-      console.log('Getting transaction status...');
-      const transactionData = getTransactionData();
-      console.log('Sending transaction data:', transactionData);
-      sendResponse({
-        success: true,
-        data: transactionData,
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error getting transaction status:', error);
-      sendResponse({
-        success: false,
-        error: error.message,
-        timestamp: new Date().toISOString()
+// Analyze transaction and request user approval
+async function analyzeAndRequestApproval(transaction, method) {
+  try {
+    const messageId = generateMessageId();
+    const enrichedTransaction = await enrichTransactionData(transaction);
+    
+    logInfo('Analyzing transaction:', enrichedTransaction);
+    
+    // Send to background script for analysis
+    const analysisResult = await sendMessageWithTimeout({
+      type: 'ANALYZE_TRANSACTION',
+      data: {
+        ...enrichedTransaction,
+        method,
+        origin: window.location.origin,
+        messageId
+      }
+    }, 10000);
+    
+    if (!analysisResult.success) {
+      logError('Transaction analysis failed:', analysisResult.error);
+      // Still allow transaction but warn user
+      return await requestUserApproval({
+        ...enrichedTransaction,
+        riskLevel: 'unknown',
+        recommendations: ['Analysis failed: ' + (analysisResult.error || 'Unknown error')]
       });
     }
-    return true; // Keep the message channel open for async response
+    
+    // Request user approval with analysis results
+    return await requestUserApproval({
+      ...enrichedTransaction,
+      ...analysisResult,
+      messageId
+    });
+    
+  } catch (error) {
+    logError('Error in transaction analysis:', error);
+    // In case of error, still show transaction to user with warning
+    return await requestUserApproval({
+      ...transaction,
+      riskLevel: 'error',
+      recommendations: ['Error analyzing transaction: ' + error.message]
+    });
   }
-  
-  // Handle other message types here if needed
-  return false;
-});
+}
 
-// Log when the message listener is registered
-console.log('Content script message listener registered');
-
-// Function to extract transaction data from the page
-function getTransactionData() {
-  // Get the connected wallet address
-  const from = window.ethereum?.selectedAddress || '0x000...';
-  
-  // Return null if no wallet is connected
-  if (from === '0x000...') {
-    return null;
-  }
-  
-  // Get transaction data from the page if available
-  // This is a simplified example - you may need to adjust selectors based on the dApp
-  let to = document.querySelector('[data-testid="transaction-to-address"]')?.innerText ||
-           document.querySelector('[data-testid="recipient-address"]')?.innerText ||
-           'Unknown';
-  
-  // Clean up the address if it contains additional text
-  to = to.replace('To: ', '').trim();
-  
-  // Get token amount and symbol if available
-  const amountElement = document.querySelector('[data-testid*="amount"]') ||
-                       document.querySelector('[data-testid*="input-amount"]');
-  const tokenElement = document.querySelector('[data-testid*="token-amount"]') ||
-                      document.querySelector('[data-testid*="token-symbol"]');
-  
-  const value = amountElement?.innerText || '0';
-  const token = tokenElement?.innerText?.replace(/[0-9.,]/g, '').trim() || 'ETH';
+// Enrich transaction data with additional context
+async function enrichTransactionData(transaction) {
+  const pageData = extractPageTransactionData();
   
   return {
-    from,
-    to,
-    value,
-    token,
+    ...transaction,
+    ...pageData,
     timestamp: new Date().toISOString(),
-    network: window.ethereum?.networkVersion || '1',
-    // These will be populated when we intercept the actual transaction
-    gas: null,
-    nonce: null,
-    data: null,
-    // These will be set by the background script after analysis
-    riskLevel: null,
-    recommendations: []
+    url: window.location.href,
+    userAgent: navigator.userAgent,
+    // Convert hex values for better analysis
+    value: transaction.value ? parseHexValue(transaction.value) : '0',
+    gas: transaction.gas ? parseHexValue(transaction.gas) : null,
+    gasPrice: transaction.gasPrice ? parseHexValue(transaction.gasPrice) : null,
+    nonce: transaction.nonce ? parseHexValue(transaction.nonce) : null
   };
 }
 
-// Listen for transaction events from Web3 providers
-function setupWeb3Interception() {
-  if (!window.ethereum) {
-    console.log('No Web3 provider detected');
-    return;
+// Extract transaction data from the current page
+function extractPageTransactionData() {
+  try {
+    // Try to extract transaction details from common dApp patterns
+    const selectors = {
+      recipient: [
+        '[data-testid*="recipient"]',
+        '[data-testid*="to-address"]', 
+        'input[placeholder*="address" i]',
+        '.recipient-address',
+        '.to-address'
+      ],
+      amount: [
+        '[data-testid*="amount"]',
+        '[data-testid*="value"]',
+        'input[type="number"]',
+        '.amount-input',
+        '.value-input'
+      ],
+      token: [
+        '[data-testid*="token"]',
+        '[data-testid*="symbol"]',
+        '.token-symbol',
+        '.currency-symbol'
+      ]
+    };
+    
+    const findElement = (selectorArray) => {
+      for (const selector of selectorArray) {
+        const element = document.querySelector(selector);
+        if (element) return element;
+      }
+      return null;
+    };
+    
+    const recipientEl = findElement(selectors.recipient);
+    const amountEl = findElement(selectors.amount);
+    const tokenEl = findElement(selectors.token);
+    
+    return {
+      pageRecipient: recipientEl?.value || recipientEl?.textContent?.trim() || null,
+      pageAmount: amountEl?.value || amountEl?.textContent?.trim() || null,
+      pageToken: tokenEl?.textContent?.replace(/[0-9.,\s]/g, '').trim() || 'ETH',
+      connectedAccount: window.ethereum?.selectedAddress || null
+    };
+  } catch (error) {
+    logError('Error extracting page data:', error);
+    return {};
   }
+}
 
-  // Store the original methods
-  const originalMethods = {
-    send: window.ethereum.send,
-    sendAsync: window.ethereum.sendAsync,
-    request: window.ethereum.request,
-    enable: window.ethereum.enable
-  };
-
-  // Helper function to handle transaction data
-  async function handleTransaction(transaction) {
-    try {
-      // Get basic transaction data from the page
-      const txData = getTransactionData();
+// Request user approval through popup
+async function requestUserApproval(transactionData) {
+  const messageId = generateMessageId();
+  
+  try {
+    // Store transaction in queue
+    transactionQueue.set(messageId, transactionData);
+    
+    // Request popup to show transaction
+    const response = await sendMessageWithTimeout({
+      type: 'SHOW_TRANSACTION_POPUP',
+      data: { ...transactionData, messageId }
+    }, 5000);
+    
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to show transaction popup');
+    }
+    
+    // Wait for user decision
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        transactionQueue.delete(messageId);
+        reject(new Error('User approval timeout'));
+      }, 60000); // 60 second timeout
       
-      // Merge with transaction details
-      const fullTxData = {
-        ...txData,
-        ...transaction,
-        // Convert hex values to decimal for better readability
-        value: transaction.value ? parseInt(transaction.value, 16) : 0,
-        gas: transaction.gas ? parseInt(transaction.gas, 16) : null,
-        gasPrice: transaction.gasPrice ? parseInt(transaction.gasPrice, 16) : null,
-        nonce: transaction.nonce ? parseInt(transaction.nonce, 16) : null
+      // Listen for user response
+      const messageListener = (message) => {
+        if (message.type === 'TRANSACTION_DECISION' && message.messageId === messageId) {
+          clearTimeout(timeout);
+          transactionQueue.delete(messageId);
+          chrome.runtime.onMessage.removeListener(messageListener);
+          resolve(message.approved);
+        }
       };
       
-      console.log('Intercepted transaction:', fullTxData);
-      
-      // Send to background for analysis
-      let response;
-      try {
-        response = await new Promise((resolve, reject) => {
-          chrome.runtime.sendMessage(
-            {
-              type: 'ANALYZE_TRANSACTION',
-              data: fullTxData
-            },
-            (result) => {
-              if (chrome.runtime.lastError) {
-                console.error('Error in message handler:', chrome.runtime.lastError);
-                reject(chrome.runtime.lastError);
-              } else {
-                resolve(result);
-              }
-            }
-          );
-        });
-        
-        console.log('Analysis response:', response);
-        
-        if (!response || response.error) {
-          throw new Error(response?.error || 'Invalid response from background script');
-        }
-        
-        // Show the popup with transaction details
-        chrome.runtime.sendMessage({
-          type: 'SHOW_TRANSACTION',
-          data: {
-            ...fullTxData,
-            riskLevel: response.riskLevel || 'unknown',
-            recommendations: response.recommendations || ['Unable to analyze transaction']
-          }
-        });
-        
-      } catch (error) {
-        console.error('Error during transaction analysis:', error);
-        // Show error in popup
-        chrome.runtime.sendMessage({
-          type: 'SHOW_TRANSACTION',
-          data: {
-            ...fullTxData,
-            riskLevel: 'error',
-            recommendations: [
-              'Error analyzing transaction',
-              error.message || 'Unknown error occurred'
-            ]
-          }
-        });
-      }
-      
-      // Wait for user response
-      return new Promise((resolve, reject) => {
-        chrome.runtime.onMessage.addListener(function listener(msg) {
-          if (msg.type === 'TRANSACTION_RESPONSE') {
-            chrome.runtime.onMessage.removeListener(listener);
-            if (msg.approved) {
-              resolve(msg.data);
-            } else {
-              reject(new Error('Transaction rejected by user'));
-            }
-          }
-        });
-      });
-    } catch (error) {
-      console.error('Error handling transaction:', error);
-      throw error;
-    }
-  }
-
-  // Override the request method (used by most modern dApps)
-  window.ethereum.request = async function(payload) {
-    console.log('Intercepted request:', payload);
+      chrome.runtime.onMessage.addListener(messageListener);
+    });
     
-    // Handle transaction requests
-    if (payload.method === 'eth_sendTransaction' || 
-        payload.method === 'eth_signTransaction') {
-      const transaction = payload.params[0];
-      await handleTransaction(transaction);
-    }
-    
-    // Call the original method
-    return originalMethods.request.call(this, payload);
-  };
-  
-  // Override the send method (legacy)
-  window.ethereum.send = function(method, params) {
-    console.log('Intercepted send:', { method, params });
-    
-    if (method === 'eth_sendTransaction' || 
-        method === 'eth_signTransaction') {
-      const transaction = Array.isArray(params) ? params[0] : params;
-      return handleTransaction(transaction)
-        .then(() => originalMethods.send.call(this, method, params));
-    }
-    
-    return originalMethods.send.call(this, method, params);
-  };
-  
-  // Override sendAsync (legacy)
-  if (originalMethods.sendAsync) {
-    window.ethereum.sendAsync = function(payload, callback) {
-      console.log('Intercepted sendAsync:', payload);
-      
-      if (payload.method === 'eth_sendTransaction' || 
-          payload.method === 'eth_signTransaction') {
-        const transaction = payload.params[0];
-        handleTransaction(transaction)
-          .then(() => originalMethods.sendAsync.call(this, payload, callback))
-          .catch(callback);
-        return;
-      }
-      
-      return originalMethods.sendAsync.call(this, payload, callback);
-    };
+  } catch (error) {
+    transactionQueue.delete(messageId);
+    logError('Error requesting user approval:', error);
+    throw error;
   }
 }
 
-// Initialize on page load
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initialize);
+// Send message with timeout
+function sendMessageWithTimeout(message, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error('Message timeout'));
+    }, timeout);
+    
+    chrome.runtime.sendMessage(message, (response) => {
+      clearTimeout(timeoutId);
+      
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else if (!response) {
+        reject(new Error('No response received'));
+      } else {
+        resolve(response);
+      }
+    });
+  });
+}
+
+// Message handling for background script communication
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  logDebug('Content script received message:', request.type);
+  
+  try {
+    switch (request.type) {
+      case 'PING':
+        sendResponse({ type: 'PONG', timestamp: Date.now() });
+        break;
+        
+      case 'GET_TRANSACTION_STATUS':
+        const status = getTransactionStatus();
+        sendResponse({ success: true, data: status });
+        break;
+        
+      case 'GET_PAGE_INFO':
+        const pageInfo = getPageInfo();
+        sendResponse({ success: true, data: pageInfo });
+        break;
+        
+      case 'TRANSACTION_DECISION':
+        // Handle user decision - this will be caught by the promise listener
+        // No response needed as it's handled by the promise mechanism
+        break;
+        
+      default:
+        sendResponse({ success: false, error: 'Unknown message type' });
+    }
+  } catch (error) {
+    logError('Error handling message:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+  
+  return true; // Keep message channel open
+});
+
+// Get current transaction status
+function getTransactionStatus() {
+  return {
+    url: window.location.href,
+    hasProvider: !!window.ethereum,
+    isConnected: !!window.ethereum?.selectedAddress,
+    accounts: window.ethereum?.selectedAddress ? [window.ethereum.selectedAddress] : [],
+    chainId: window.ethereum?.chainId || null,
+    networkVersion: window.ethereum?.networkVersion || null,
+    pendingTransactions: transactionQueue.size,
+    timestamp: new Date().toISOString()
+  };
+}
+
+// Get page information
+function getPageInfo() {
+  return {
+    url: window.location.href,
+    title: document.title,
+    domain: window.location.hostname,
+    ...extractPageTransactionData(),
+    timestamp: new Date().toISOString()
+  };
+}
+
+// Utility functions
+function generateMessageId() {
+  return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function parseHexValue(hex) {
+  if (typeof hex === 'string' && hex.startsWith('0x')) {
+    return parseInt(hex, 16).toString();
+  }
+  return hex;
+}
+
+// Initialize the content script
+async function initialize() {
+  if (isInitialized) {
+    logDebug('Content script already initialized');
+    return;
+  }
+  
+  try {
+    logInfo('Initializing Web3 Guardian content script...');
+    
+    // Detect Web3 provider
+    originalProvider = await detectWeb3Provider();
+    logInfo('Web3 provider detected:', originalProvider.constructor.name);
+    
+    // Create and install proxy
+    providerProxy = createProviderProxy(originalProvider);
+    
+    // Replace the global provider with our proxy
+    Object.defineProperty(window, 'ethereum', {
+      value: providerProxy,
+      writable: false,
+      configurable: false
+    });
+    
+    // Listen for account and chain changes
+    setupProviderEventListeners();
+    
+    isInitialized = true;
+    logInfo('✅ Web3 Guardian content script initialized successfully');
+    
+    // Notify background script
+    try {
+      await sendMessageWithTimeout({ type: 'CONTENT_SCRIPT_READY' }, 2000);
+    } catch (error) {
+      logError('Failed to notify background script:', error);
+    }
+    
+  } catch (error) {
+    logError('Failed to initialize Web3 Guardian:', error);
+  }
+}
+
+// Setup provider event listeners
+function setupProviderEventListeners() {
+  if (!originalProvider) return;
+  
+  // Listen for account changes
+  originalProvider.on?.('accountsChanged', (accounts) => {
+    logInfo('Accounts changed:', accounts);
+    chrome.runtime.sendMessage({
+      type: 'ACCOUNTS_CHANGED',
+      accounts
+    }).catch(err => logError('Failed to notify account change:', err));
+  });
+  
+  // Listen for chain changes
+  originalProvider.on?.('chainChanged', (chainId) => {
+    logInfo('Chain changed:', chainId);
+    chrome.runtime.sendMessage({
+      type: 'CHAIN_CHANGED',
+      chainId
+    }).catch(err => logError('Failed to notify chain change:', err));
+  });
+  
+  // Listen for connection events
+  originalProvider.on?.('connect', (connectInfo) => {
+    logInfo('Provider connected:', connectInfo);
+  });
+  
+  originalProvider.on?.('disconnect', (error) => {
+    logInfo('Provider disconnected:', error);
+  });
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initialize);
 } else {
   initialize();
 }
 
-// Observe for dynamic provider injection
-const observer = new MutationObserver((mutations) => {
-  if (window.ethereum) {
-    setupWeb3Interception();
-    observer.disconnect();
-  }
-});
+// Also try to initialize immediately in case provider is already available
+setTimeout(initialize, 100);
 
-observer.observe(document, { childList: true, subtree: true });
+// Export functions for testing
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    initialize,
+    detectWeb3Provider,
+    extractPageTransactionData,
+    getTransactionStatus
+  };
+}
