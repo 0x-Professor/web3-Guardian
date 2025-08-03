@@ -550,100 +550,243 @@ function generateRecommendations(analysisResult, txData) {
   return recommendations;
 }
 
-// Utility functions
-function generateCacheKey(data) {
-  return JSON.stringify({
-    to: data.to,
-    value: data.value,
-    data: data.data,
-    origin: data.origin
-  });
-}
-
-function getFromCache(cache, key) {
-  const item = cache.get(key);
-  if (item && Date.now() - item.timestamp < CACHE_TTL) {
-    return item.data;
-  }
-  if (item) {
-    cache.delete(key);
-  }
-  return null;
-}
-
-function setCache(cache, key, data) {
-  // Prevent cache from growing too large
-  if (cache.size >= MAX_CACHE_SIZE) {
-    const oldestKey = cache.keys().next().value;
-    cache.delete(oldestKey);
-  }
+// New comprehensive handlers for Web3 interception
+async function handleAnalyzeWalletConnection(request, sender) {
+  const { data } = request;
+  const tabId = sender.tab?.id;
   
-  cache.set(key, {
-    data,
-    timestamp: Date.now()
-  });
-}
-
-function cleanupPendingTransactions() {
-  const now = Date.now();
-  const expired = [];
-  
-  for (const [id, tx] of pendingTransactions) {
-    if (now - tx.timestamp > CONFIG.USER_DECISION_TIMEOUT) {
-      expired.push(id);
-    }
-  }
-  
-  expired.forEach(id => {
-    pendingTransactions.delete(id);
-    logDebug(`Cleaned up expired transaction: ${id}`);
-  });
-  
-  // Also enforce max pending transactions
-  if (pendingTransactions.size > CONFIG.MAX_PENDING_TRANSACTIONS) {
-    const sortedTxs = Array.from(pendingTransactions.entries())
-      .sort((a, b) => a[1].timestamp - b[1].timestamp);
-    
-    const toRemove = sortedTxs.slice(0, sortedTxs.length - CONFIG.MAX_PENDING_TRANSACTIONS);
-    toRemove.forEach(([id]) => {
-      pendingTransactions.delete(id);
-      logDebug(`Cleaned up old transaction due to limit: ${id}`);
-    });
-  }
-}
-
-async function sendMessageToTab(tabId, message) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, { frameId: 0 }, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-      } else if (!response) {
-        reject(new Error('No response from tab'));
-      } else {
-        resolve(response);
-      }
-    });
-  });
-}
-
-// Initialize background script
-async function initialize() {
   try {
-    // Load user settings
-    const stored = await chrome.storage.local.get(['userSettings']);
-    if (stored.userSettings) {
-      Object.assign(userSettings, stored.userSettings);
-    }
+    logInfo('🔗 Analyzing wallet connection request:', {
+      domain: data.dAppInfo?.domain,
+      url: data.dAppInfo?.url,
+      tabId
+    });
     
-    // Set up periodic cleanup
-    setInterval(cleanupPendingTransactions, 60000); // Every minute
+    // Analyze dApp legitimacy
+    const dAppAnalysis = await analyzeDAppLegitimacy(data.dAppInfo);
     
-    logInfo('✅ Web3 Guardian background script initialized');
+    // Send data to backend for RAG analysis
+    const backendAnalysis = await sendToBackend({
+      type: 'wallet_connection',
+      dAppInfo: data.dAppInfo,
+      analysis: dAppAnalysis
+    });
+    
+    const result = {
+      success: true,
+      riskLevel: dAppAnalysis.riskLevel,
+      recommendations: [
+        ...dAppAnalysis.recommendations,
+        ...(backendAnalysis.recommendations || [])
+      ],
+      dAppVerified: dAppAnalysis.isVerified,
+      trustScore: dAppAnalysis.trustScore,
+      externalVerification: backendAnalysis.verification || null
+    };
+    
+    return result;
     
   } catch (error) {
-    logError('Failed to initialize background script:', error);
+    logError('Wallet connection analysis failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      riskLevel: 'unknown',
+      recommendations: ['Unable to analyze connection request']
+    };
   }
 }
 
-// Start initialization
-initialize();
+async function handleAnalyzeContractInteraction(request, sender) {
+  const { data } = request;
+  
+  try {
+    logInfo('📄 Analyzing contract interaction:', {
+      to: data.to,
+      method: data.method
+    });
+    
+    // Get contract information from Etherscan
+    const contractInfo = await getContractFromEtherscan(data.to);
+    
+    // Analyze function call if possible
+    const functionAnalysis = await analyzeFunctionCall(data.data, contractInfo);
+    
+    // Send to backend for comprehensive analysis
+    const backendAnalysis = await sendToBackend({
+      type: 'contract_interaction',
+      contractAddress: data.to,
+      contractInfo,
+      functionCall: data.data,
+      functionAnalysis,
+      url: data.url
+    });
+    
+    return {
+      success: true,
+      contractInfo,
+      functionAnalysis,
+      backendAnalysis
+    };
+    
+  } catch (error) {
+    logError('Contract interaction analysis failed:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+async function handleAnalyzeSigningRequest(request, sender) {
+  const { data } = request;
+  
+  try {
+    logInfo('✍️ Analyzing signing request:', {
+      method: data.method,
+      messageLength: data.message?.length
+    });
+    
+    // Analyze the signing request
+    const signingAnalysis = await analyzeSigningMessage(data);
+    
+    // Send to backend for analysis
+    const backendAnalysis = await sendToBackend({
+      type: 'signing_request',
+      method: data.method,
+      message: data.message,
+      analysis: signingAnalysis
+    });
+    
+    return {
+      success: true,
+      ...signingAnalysis,
+      backendAnalysis
+    };
+    
+  } catch (error) {
+    logError('Signing request analysis failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      riskLevel: 'unknown'
+    };
+  }
+}
+
+async function handleShowApprovalPopup(request, sender) {
+  const { data } = request;
+  const tabId = sender.tab?.id;
+  
+  try {
+    // Store approval request
+    const messageId = data.messageId;
+    pendingTransactions.set(messageId, {
+      data,
+      tabId,
+      type: data.actionType || 'unknown',
+      timestamp: Date.now()
+    });
+    
+    // Open popup
+    await chrome.action.openPopup();
+    
+    // Notify popup of pending approval
+    setTimeout(() => {
+      chrome.runtime.sendMessage({
+        type: 'PENDING_APPROVAL_UPDATE',
+        data: {
+          ...data,
+          tabId,
+          url: sender.tab?.url
+        }
+      }).catch(err => logDebug('Popup not ready yet:', err.message));
+    }, 500);
+    
+    return { success: true };
+    
+  } catch (error) {
+    logError('Failed to show approval popup:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function handleWalletConnected(request, sender) {
+  const { data } = request;
+  
+  try {
+    logInfo('✅ Wallet connected:', {
+      accounts: data.accounts?.length,
+      domain: data.dAppInfo?.domain
+    });
+    
+    // Store connection info
+    const tabId = sender.tab?.id;
+    if (tabId) {
+      connectedTabs.set(tabId, {
+        ...connectedTabs.get(tabId),
+        connected: true,
+        accounts: data.accounts,
+        chainId: data.chainId,
+        dAppInfo: data.dAppInfo
+      });
+    }
+    
+    // Send connection info to backend for monitoring
+    await sendToBackend({
+      type: 'wallet_connected',
+      accounts: data.accounts,
+      dAppInfo: data.dAppInfo,
+      chainId: data.chainId
+    });
+    
+    return { success: true };
+    
+  } catch (error) {
+    logError('Failed to handle wallet connection:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function handleAccountAccess(request, sender) {
+  const { data } = request;
+  
+  try {
+    // Log account access for monitoring
+    logInfo('👤 Account access:', {
+      accounts: data.accounts?.length,
+      url: data.url
+    });
+    
+    return { success: true };
+    
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+async function handleUserDecision(request, sender) {
+  const { messageId, approved } = request;
+  
+  try {
+    // Forward decision to content script
+    const transaction = pendingTransactions.get(messageId);
+    if (transaction) {
+      await sendMessageToTab(transaction.tabId, {
+        type: 'USER_DECISION',
+        messageId,
+        approved
+      });
+      
+      pendingTransactions.delete(messageId);
+      
+      logInfo(`User ${approved ? 'approved' : 'rejected'} ${transaction.type}:`, messageId);
+    }
+    
+    return { success: true };
+    
+  } catch (error) {
+    logError('Failed to handle user decision:', error);
+    return { success: false, error: error.message };
+  }
+}
