@@ -7,6 +7,28 @@ console.log('Content script injected at:', new Date().toISOString());
 // Store the original provider
 let ORIGINAL_PROVIDER = window.ethereum;
 
+// Initialize the content script
+function initialize() {
+  if (!window.ethereum) {
+    logError("No Web3 provider detected on page load");
+    // Poll for provider injection
+    const checkForProvider = setInterval(() => {
+      if (window.ethereum) {
+        logInfo("Web3 provider detected after delay");
+        originalProvider = window.ethereum;
+        setupWeb3Interception();
+        clearInterval(checkForProvider);
+      }
+    }, 1000);
+    // Stop polling after 10 seconds
+    setTimeout(() => clearInterval(checkForProvider), 10000);
+  } else {
+    logInfo("Original Web3 provider detected", window.ethereum);
+    setupWeb3Interception();
+  }
+}
+
+
 // Add a message listener for the background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Content script received message:', request.type);
