@@ -2,8 +2,7 @@ import os
 import logging
 from typing import Dict, Any, Optional, Union
 from web3 import Web3
-from tenderly_sdk import Tenderly, Network
-from tenderly_sdk.simulation import SimulationRequest
+from tenderly import Tenderly
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +23,14 @@ class TenderlySimulator:
             project_slug=project_slug
         )
         
-        # Map common network names to Tenderly network IDs
+        # Map common chain IDs to Tenderly network names
         self.network_map = {
-            1: Network.MAINNET,
-            5: Network.GOERLI,
-            137: Network.POLYGON,
-            42161: Network.ARBITRUM_ONE,
-            10: Network.OPTIMISM,
-            56: Network.BSC_MAINNET,
+            1: "mainnet",
+            5: "goerli",
+            137: "polygon",
+            42161: "arbitrum-one",
+            10: "optimism",
+            56: "bsc",
         }
     
     def simulate_transaction(
@@ -58,54 +57,54 @@ class TenderlySimulator:
             
         try:
             # Get the network from our mapping, default to mainnet
-            network = self.network_map.get(network_id, Network.MAINNET)
+            network = self.network_map.get(network_id, "mainnet")
             
-            # Prepare the simulation request
-            request = SimulationRequest(
-                from_=tx_params.get('from'),
-                to=tx_params.get('to'),
-                input=tx_params.get('data', '0x'),
-                gas=int(tx_params.get('gas', 3000000)),
-                gas_price=int(tx_params.get('gasPrice', '0x0'), 16) if isinstance(tx_params.get('gasPrice'), str) else tx_params.get('gasPrice', 0),
-                value=int(tx_params.get('value', '0x0'), 16) if isinstance(tx_params.get('value'), str) else tx_params.get('value', 0),
-                save=save,
-                network_id=network.value,
-                block_number=block_number,
-                save_if_fails=True
-            )
+            # Prepare transaction data
+            tx_data = {
+                "from": tx_params.get('from'),
+                "to": tx_params.get('to'),
+                "input": tx_params.get('data', '0x'),
+                "gas": int(tx_params.get('gas', 3000000)),
+                "gas_price": int(tx_params.get('gasPrice', '0x0'), 16) if isinstance(tx_params.get('gasPrice'), str) else tx_params.get('gasPrice', 0),
+                "value": int(tx_params.get('value', '0x0'), 16) if isinstance(tx_params.get('value'), str) else tx_params.get('value', 0),
+                "save": save,
+                "save_if_fails": True,
+                "network_id": str(network_id),
+                "block_number": block_number
+            }
             
             # Add optional parameters if they exist
             if 'nonce' in tx_params:
-                request.nonce = tx_params['nonce']
+                tx_data["nonce"] = tx_params['nonce']
                 
             if 'accessList' in tx_params:
-                request.access_list = tx_params['accessList']
+                tx_data["access_list"] = tx_params['accessList']
                 
             if 'maxFeePerGas' in tx_params:
-                request.max_fee_per_gas = int(tx_params['maxFeePerGas'], 16) if isinstance(tx_params['maxFeePerGas'], str) else tx_params['maxFeePerGas']
+                tx_data["max_fee_per_gas"] = int(tx_params['maxFeePerGas'], 16) if isinstance(tx_params['maxFeePerGas'], str) else tx_params['maxFeePerGas']
                 
             if 'maxPriorityFeePerGas' in tx_params:
-                request.max_priority_fee_per_gas = (
+                tx_data["max_priority_fee_per_gas"] = (
                     int(tx_params['maxPriorityFeePerGas'], 16) 
                     if isinstance(tx_params['maxPriorityFeePerGas'], str) 
                     else tx_params['maxPriorityFeePerGas']
                 )
             
             # Run the simulation
-            simulation = self.tenderly.simulator.simulate(request)
+            simulation = self.tenderly.simulator.simulate(tx_data)
             
             # Process the simulation results
             return {
-                "success": simulation.status,
-                "gas_used": simulation.gas_used,
-                "block_number": simulation.block_number,
-                "transaction_hash": simulation.transaction_hash,
-                "status": simulation.status,
-                "error": simulation.error_message,
-                "logs": simulation.logs or [],
-                "trace": simulation.trace or [],
-                "state_diff": simulation.state_diff or {},
-                "simulation_id": simulation.id
+                "success": simulation.get("status", False),
+                "gas_used": simulation.get("transaction", {}).get("gas_used", 0),
+                "block_number": simulation.get("block_number"),
+                "transaction_hash": simulation.get("transaction", {}).get("hash"),
+                "status": simulation.get("transaction", {}).get("status"),
+                "error": simulation.get("error", {}).get("error_message"),
+                "logs": simulation.get("logs", []),
+                "trace": simulation.get("trace", []),
+                "state_diff": simulation.get("state_diff", {}),
+                "simulation_id": simulation.get("id")
             }
             
         except Exception as e:
@@ -169,7 +168,14 @@ class TenderlySimulator:
         if not sim_id:
             return None
             
+        # Extract account and project from the Tenderly client
+        account_slug = getattr(self.tenderly, 'account_slug', '')
+        project_slug = getattr(self.tenderly, 'project_slug', '')
+        
+        if not account_slug or not project_slug:
+            return None
+            
         return (
-            f"https://dashboard.tenderly.co/{self.tenderly.account_slug}/"
-            f"{self.tenderly.project_slug}/simulator/{sim_id}"
+            f"https://dashboard.tenderly.co/{account_slug}/"
+            f"{project_slug}/simulator/{sim_id}"
         )
