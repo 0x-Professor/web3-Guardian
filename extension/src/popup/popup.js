@@ -196,9 +196,18 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
   
-  rejectBtn.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'TRANSACTION_RESPONSE', approved: false });
-    window.close();
+  rejectBtn.addEventListener('click', async () => {
+    try {
+      showLoading('Processing rejection...');
+      await chrome.runtime.sendMessage({ 
+        type: 'TRANSACTION_RESPONSE', 
+        approved: false 
+      });
+      window.close();
+    } catch (error) {
+      console.error('Error rejecting transaction:', error);
+      showMessage('Failed to reject transaction', 'error');
+    }
   });
   
   // Initialize the popup
