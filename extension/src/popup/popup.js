@@ -263,6 +263,13 @@ async function initializePopup() {
     }
     
     // If no pending transactions, get current tab status
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) {
+      throw new Error('No active tab found');
+    }
+    
+    const statusResponse = await sendMessage({ 
+      type: 'GET_TRANSACTION_STATUS'
     });
     
     if (statusResponse.success) {
