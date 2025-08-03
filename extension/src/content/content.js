@@ -13,16 +13,37 @@ if (window.ethereum) {
   console.warn('No Web3 provider detected on this page');
 }
 
-// Listen for messages from the popup
+// Listen for messages from the popup and background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('Content script received message:', request.type, 'from:', sender);
+  
   if (request.type === 'GET_TRANSACTION_STATUS') {
-    // Get the current transaction data from the page
-    const transactionData = getTransactionData();
-    sendResponse(transactionData);
+    try {
+      console.log('Getting transaction status...');
+      const transactionData = getTransactionData();
+      console.log('Sending transaction data:', transactionData);
+      sendResponse({
+        success: true,
+        data: transactionData,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error getting transaction status:', error);
+      sendResponse({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
     return true; // Keep the message channel open for async response
   }
+  
+  // Handle other message types here if needed
   return false;
 });
+
+// Log when the message listener is registered
+console.log('Content script message listener registered');
 
 // Function to extract transaction data from the page
 function getTransactionData() {

@@ -42,19 +42,39 @@ document.addEventListener('DOMContentLoaded', function() {
       // Try to get transaction status with retry logic
       let response;
       try {
-        response = await chrome.tabs.sendMessage(
-          tab.id, 
-          { type: 'GET_TRANSACTION_STATUS' },
-          { timeout: 2000 } // 2 second timeout
-        );
+        console.log('Sending GET_TRANSACTION_STATUS to tab:', tab.id);
+        response = await new Promise((resolve, reject) => {
+          chrome.tabs.sendMessage(
+            tab.id, 
+            { type: 'GET_TRANSACTION_STATUS' },
+            (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('Error sending message to tab:', chrome.runtime.lastError);
+                reject(chrome.runtime.lastError);
+              } else {
+                console.log('Received response from content script:', response);
+                resolve(response);
+              }
+            }
+          );
+          
+          // Set a timeout for the response
+          setTimeout(() => {
+            if (!response) {
+              reject(new Error('Timeout waiting for content script response'));
+            }
+          }, 5000); // 5 second timeout
+        });
       } catch (error) {
+        console.error('Error communicating with content script:', error);
         if (retryCount < MAX_RETRIES) {
           retryCount++;
-          console.log(`Retry ${retryCount}/${MAX_RETRIES}...`);
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          const delay = RETRY_DELAY * retryCount; // Exponential backoff
+          console.log(`Retry ${retryCount}/${MAX_RETRIES} in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
           return initPopup();
         }
-        throw new Error('Could not connect to the content script. Make sure you are on a Web3-enabled page.');
+        throw new Error(`Could not connect to the content script: ${error.message}`);
       }
       
       if (response && response.success === false) {
