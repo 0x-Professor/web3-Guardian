@@ -1,7 +1,17 @@
 // Content script that runs in the context of web pages
 // Intercepts and analyzes Web3 transactions
 
-console.log('Web3 Guardian content script loaded');
+console.log('Web3 Guardian content script loaded on', window.location.href);
+
+// Log when the script is injected
+console.log('Content script injected at:', new Date().toISOString());
+
+// Log if Web3 is detected
+if (window.ethereum) {
+  console.log('Web3 provider detected:', window.ethereum);
+} else {
+  console.warn('No Web3 provider detected on this page');
+}
 
 // Listen for messages from the popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
