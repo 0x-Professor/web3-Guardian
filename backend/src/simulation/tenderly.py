@@ -1,49 +1,83 @@
 import json
 import logging
-import requests
-from typing import Any, Dict, Optional, Union
+import os
+import time
+from typing import Any, Dict, List, Optional, Tuple, Union
+from pathlib import Path
 
+import requests
 from web3 import Web3
+from web3.types import TxParams, Wei
+
+from ..utils.config import settings
+from ..utils.logger import setup_logger
+
+# Set up logger
+logger = setup_logger(__name__)
+
+class TenderlyError(Exception):
+    """Base exception for Tenderly-related errors."""
+    pass
+
+class SimulationFailedError(TenderlyError):
+    """Raised when a simulation fails."""
+    pass
+
+class ContractVerificationError(TenderlyError):
+    """Raised when contract verification fails."""
+    pass
 
 logger = logging.getLogger(__name__)
 
 
-class TenderlySimulator:
-    """Handles transaction simulation using Tenderly's API."""
+class TenderlyClient:
+    """Handles all interactions with Tenderly's API for simulation and analysis."""
     
-    def __init__(self, api_key: str, project_slug: str, account_slug: str):
-        """Initialize the Tenderly simulator.
+    def __init__(self, api_key: str = None, project_slug: str = None, account_slug: str = None):
+        """Initialize the Tenderly client.
         
         Args:
-            api_key: Tenderly API key
-            project_slug: Tenderly project slug
-            account_slug: Tenderly account/team slug
+            api_key: Tenderly API key. If not provided, will use from settings.
+            project_slug: Tenderly project slug. If not provided, will use from settings.
+            account_slug: Tenderly account/team slug. If not provided, will use from settings.
         """
-        self.api_key = api_key
-        self.project_slug = project_slug
-        self.account_slug = account_slug
-        self.base_url = "https://api.tenderly.co/api/v1"
+        self.api_key = api_key or settings.TENDERLY_TOKEN
+        self.project_slug = project_slug or settings.TENDERLY_PROJECT_SLUG
+        self.account_slug = account_slug or settings.TENDERLY_ACCOUNT_SLUG
+        self.base_url = settings.TENDERLY_API_URL.rstrip('/')
         self.headers = {
             "Content-Type": "application/json",
             "X-Access-Key": self.api_key,
         }
+        self.timeout = settings.ANALYSIS_TIMEOUT / 1000  # Convert to seconds
         
-        # Map chain IDs to Tenderly network names
+        # Map chain IDs to Tenderly network names with additional metadata
         self.network_map = {
-            1: "mainnet",
-            5: "goerli",
-            137: "polygon",
-            42161: "arbitrum",  # Note: Tenderly uses 'arbitrum' not 'arbitrum-one' in API
-            10: "optimism",
-            56: "bsc",
+            1: {"name": "mainnet", "explorer": "https://etherscan.io"},
+            5: {"name": "goerli", "explorer": "https://goerli.etherscan.io"},
+            137: {"name": "polygon", "explorer": "https://polygonscan.com"},
+            42161: {"name": "arbitrum", "explorer": "https://arbiscan.io"},
+            10: {"name": "optimism", "explorer": "https://optimistic.etherscan.io"},
+            56: {"name": "bsc", "explorer": "https://bscscan.com"},
+            43114: {"name": "avalanche", "explorer": "https://snowtrace.io"},
+            250: {"name": "fantom", "explorer": "https://ftmscan.com"},
+            100: {"name": "gnosis", "explorer": "https://gnosisscan.io"},
+            42170: {"name": "arbitrum-nova", "explorer": "https://nova.arbiscan.io"},
         }
     
-    def _make_api_request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
-        """Make an authenticated request to the Tenderly API.
+    def _make_api_request(
+        self, 
+        method: str, 
+        endpoint: str, 
+        retries: int = 3,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Make an authenticated request to the Tenderly API with retries and error handling.
         
         Args:
             method: HTTP method (get, post, etc.)
             endpoint: API endpoint (without base URL)
+            retries: Number of retry attempts
             **kwargs: Additional arguments to pass to requests.request
             
         Returns:
