@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 # Import internal modules
 from src.utils.config import settings
 from src.utils.logger import setup_logger
-from src.simulation.tenderly import TenderlyClient, TenderlyError, SimulationFailedError
+from src.simulation.tenderly_new import TenderlyClient, TenderlyError, SimulationFailedError
 
 # Set up logger
 logger = setup_logger(__name__)
