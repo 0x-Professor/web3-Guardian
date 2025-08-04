@@ -2,10 +2,12 @@ from fastapi import FastAPI, HTTPException, Depends, Request, status, Background
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, HttpUrl
-from typing import Optional, Dict, Any, List, Literal
+from typing import Optional, Dict, Any, List, Literal, Union
 import logging
 import os
 import uuid
+import json
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -13,16 +15,15 @@ from dotenv import load_dotenv
 # Import internal modules
 from src.utils.config import settings
 from src.utils.logger import setup_logger
-from src.simulation.tenderly_new import TenderlyClient, TenderlyError, SimulationFailedError
+from src.simulation.tenderly_new import (
+    TenderlyClient, 
+    TenderlyError, 
+    SimulationFailedError,
+    ContractVerificationError
+)
 
-# Set up logger
+# Initialize logger
 logger = setup_logger(__name__)
-
-# Global Tenderly client instance
-tenderly_client = TenderlyClient()
-
-# Load environment variables
-load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -39,6 +40,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize Tenderly client
+try:
+    tenderly_client = TenderlyClient()
+except Exception as e:
+    logger.error(f"Failed to initialize Tenderly client: {str(e)}")
+    raise
+
+# Set up logger
+logger = setup_logger(__name__)
+
+# Global Tenderly client instance
+tenderly_client = TenderlyClient()
+
+# Load environment variables
+load_dotenv()
+
+
 
 # Models
 class ContractAnalysisRequest(BaseModel):
@@ -141,32 +160,79 @@ async def perform_static_analysis(contract_address: str, network: str) -> Dict[s
     }
 
 async def perform_dynamic_analysis(contract_address: str, network: str) -> Dict[str, Any]:
-    """Perform dynamic analysis using Tenderly."""
-    logger.info(f"Starting dynamic analysis for {contract_address} on {network}")
+    """Perform dynamic analysis using Tenderly.
+    
+    Args:
+        contract_address: The address of the smart contract
+        network: The network the contract is deployed on
+        
+    Returns:
+        Dict containing dynamic analysis results
+    """
+    logger.info(f"Performing dynamic analysis on {contract_address} on {network}")
     
     try:
-        # Simulate a simple transaction to the contract
+        # Get contract metadata to check if it's a token contract
+        metadata = await tenderly_client.get_contract_metadata(contract_address, network)
+        
+        # Prepare simulation parameters based on contract type
+        if "ERC20" in metadata.get("contract_name", ""):
+            # Simulate a token transfer
+            tx_params = {
+                "from": "0x0000000000000000000000000000000000000000",  # Zero address for minting
+                "to": contract_address,
+                "data": "0xa9059cbb00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000001",  # transfer(0x0...1, 1)
+                "value": "0x0"
+            }
+        else:
+            # Default simulation parameters
+            tx_params = {
+                "from": "0x0000000000000000000000000000000000000000",
+                "to": contract_address,
+                "data": "0x",  # Empty data for fallback function
+                "value": "0x0"
+            }
+        
+        # Run the simulation
         simulation = await tenderly_client.simulate_transaction(
-            from_address="0x0000000000000000000000000000000000000000",  # Use a default address
-            to_address=contract_address,
-            value=0,
-            data="0x",  # Empty data for now - could be a function selector
+            from_address=tx_params["from"],
+            to_address=tx_params["to"],
+            data=tx_params["data"],
+            value=int(tx_params["value"], 16),
             network=network
         )
         
         return {
             "simulation_id": simulation.get("id"),
-            "gas_used": simulation.get("gas_used"),
-            "execution_trace": simulation.get("trace"),
-            "error": None
+            "gas_used": simulation.get("gas_used", 0),
+            "status": simulation.get("status", False),
+            "execution_trace": simulation.get("trace", {}),
+            "logs": simulation.get("logs", []),
+            "error": None,
+            "timestamp": datetime.utcnow().isoformat()
         }
+        
     except SimulationFailedError as e:
+        logger.error(f"Simulation failed: {str(e)}")
+        return {
+            "simulation_id": None,
+            "gas_used": 0,
+            "status": False,
+            "execution_trace": {},
+            "logs": [],
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
         logger.error(f"Dynamic analysis failed: {str(e)}")
         return {
             "simulation_id": None,
-            "gas_used": None,
-            "execution_trace": None,
-            "error": str(e)
+            "gas_used": 0,
+            "status": False,
+            "execution_trace": {},
+            "logs": [],
+            "error": f"Unexpected error: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
         }
 
 async def run_analysis(analysis_id: str, request: ContractAnalysisRequest):
