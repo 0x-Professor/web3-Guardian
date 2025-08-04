@@ -705,8 +705,9 @@ By contributing to Web3 Guardian, you agree that your contributions will be lice
 
 - **Documentation**: Check existing documentation first
 - **GitHub Issues**: Search for similar issues
-- **Discord**: Join our [Discord server](https://discord.gg/web3guardian)
-- **Email**: Contact [contributors@web3guardian.dev](mailto:contributors@web3guardian.dev)
+- **Discord**: Join our [Discord server](https://discord.gg/web3guardian) coming soon
+- **Stack Overflow**: Ask questions using the `web3guardian` tag coming soon
+- **Email**: Contact [contributors@web3guardian.dev](mailto:contributors@web3guardian.dev) coming soon
 
 ## Recognition
 
@@ -715,6 +716,8 @@ Contributors are recognized in:
 - Project documentation
 - Release notes
 - Annual contributor acknowledgments
+- Community forums and discussions
+- Community guidelines coming soon
 
 ---
 
