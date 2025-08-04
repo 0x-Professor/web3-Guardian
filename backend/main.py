@@ -22,6 +22,7 @@ from src.simulation.tenderly_new import (
     ContractVerificationError
 )
 
+load_dotenv()
 # Initialize logger
 logger = setup_logger(__name__)
 
