@@ -38,7 +38,6 @@ mythril>=0.23.28,<1.0.0; python_version < '3.13'
 # manticore>=0.3.8,<1.0.0
 
 # Tenderly SDK
-tenderly-sdk>=0.7.0,<1.0.0
 
 # Security tools
 bandit==1.7.5
