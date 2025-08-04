@@ -42,22 +42,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Tenderly client
-try:
-    tenderly_client = TenderlyClient()
-except Exception as e:
-    logger.error(f"Failed to initialize Tenderly client: {str(e)}")
-    raise
-
-# Set up logger
-logger = setup_logger(__name__)
-
-# Global Tenderly client instance
-tenderly_client = TenderlyClient()
-
 # Load environment variables
 load_dotenv()
 
+# Global Tenderly client instance
+try:
+    tenderly_client = TenderlyClient()
+    logger.info("Tenderly client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Tenderly client: {str(e)}")
+    raise
 
 
 # Models
@@ -135,6 +129,47 @@ class AnalysisResponse(BaseModel):
 analysis_results = {}
 
 # Utility functions
+async def fetch_contract_details(contract_address: str, network: str) -> Dict[str, Any]:
+    """Fetch contract details including source code and metadata.
+    
+    Args:
+        contract_address: The address of the smart contract
+        network: The network the contract is deployed on
+        
+    Returns:
+        Dict containing contract details
+    """
+    logger.info(f"Fetching details for contract {contract_address} on {network}")
+    
+    try:
+        # Get contract metadata first
+        metadata = await tenderly_client.get_contract_metadata(contract_address, network)
+        
+        # Get source code if available
+        source = None
+        try:
+            source = await tenderly_client.get_contract_source(contract_address, network)
+        except TenderlyError as e:
+            logger.warning(f"Could not fetch contract source: {str(e)}")
+        
+        # Get bytecode
+        bytecode = await tenderly_client.get_contract_bytecode(contract_address, network)
+        
+        return {
+            "metadata": metadata,
+            "source": source,
+            "bytecode": bytecode,
+            "is_verified": source is not None,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch contract details: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch contract details: {str(e)}"
+        )
+
+def perform_static_analysis(contract_address: str, network: str):
 async def perform_static_analysis(contract_address: str, network: str) -> Dict[str, Any]:
     """Perform static analysis on a smart contract."""
     # TODO: Implement actual static analysis using Slither, Mythril, etc.
