@@ -31,9 +31,19 @@ aiohttp==3.9.1
 
 # Security analysis tools
 slither-analyzer==0.10.0
+mythril==0.23.28
+manticore==0.3.8
 
+# Tenderly SDK
+tenderly-sdk==0.7.0
+
+# Security tools
 bandit==1.7.5
 safety==2.3.5
+
+# Smart contract analysis
+eth-brownie==1.20.3
+web3-tenderly==0.1.4
 
 # Data processing and analysis
 pandas
