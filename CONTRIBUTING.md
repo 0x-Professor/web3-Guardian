@@ -49,13 +49,13 @@ Create a `.env` file in the root directory with the following variables:
 ```bash
 # Tenderly Configuration
 TENDERLY_API_KEY=your_tenderly_api_key
-TENDERLY_ACCOUNT_SLUG=0xProfessor
+TENDERLY_ACCOUNT_SLUG=account
 TENDERLY_PROJECT_SLUG=project
-TENDERLY_API_URL=https://api.tenderly.co/api/v1/account/0xProfessor/project/project/
-TENDERLY_SECRET_TOKEN=VufhEuJvtT-eKwDw8txlpPbMHVPgbiGC
+TENDERLY_API_URL=https://api.tenderly.co/api/v1/account/account/project/
+TENDERLY_SECRET_TOKEN=your_tenderly_secret_token
 
 # Gemini API Configuration
-GEMINI_API_KEY=AIzaSyBOc_PsNyd0SZSwwCe9fk9PEhfPMpJkWQw
+GEMINI_API_KEY=your_gemini_api_key
 
 # Database Configuration
 DATABASE_URL=postgresql://web3guardian:password@localhost:5432/web3guardian
