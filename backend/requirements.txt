@@ -1,6 +1,6 @@
 # Core FastAPI and server dependencies
-fastapi>=0.104.1,<1.0.0
-uvicorn[standard]>=0.24.0,<1.0.0
+fastapi>=0.110.0,<1.0.0
+uvicorn[standard]>=0.27.0,<1.0.0
 python-multipart>=0.0.6,<1.0.0
 pydantic>=2.5.0,<3.0.0
 python-dotenv>=1.0.0,<2.0.0
@@ -32,10 +32,9 @@ httpx==0.25.2
 aiohttp==3.9.1
 
 # Security analysis tools
+# Note: Some security tools may not be fully compatible with Python 3.13 yet
 slither-analyzer>=0.10.0,<1.0.0; python_version < '3.13'
 mythril>=0.23.28,<1.0.0; python_version < '3.13'
-# Manticore is not compatible with Python 3.13 yet
-# manticore>=0.3.8,<1.0.0
 
 # Tenderly SDK
 
@@ -62,24 +61,27 @@ python-jose[cryptography]
 passlib[bcrypt]
 cryptography
 
-# Database (optional)
-sqlalchemy==2.0.23
-alembic==1.13.1
-psycopg2-binary==2.9.9
+# Database (using asyncpg for Python 3.13+ compatibility)
+sqlalchemy>=2.0.23,<3.0.0
+alembic>=1.13.1,<2.0.0
+asyncpg>=0.28.0,<1.0.0
+sqlalchemy[asyncio]>=2.0.23,<3.0.0
 
 # Rate limiting and middleware
 slowapi>=0.1.9,<1.0.0
 
 # Testing dependencies
-pytest==7.4.3
-pytest-asyncio==0.21.1
-pytest-cov==4.1.0
-httpx==0.25.2
+pytest>=8.0.0,<9.0.0
+pytest-asyncio>=0.23.0,<1.0.0
+pytest-cov>=4.1.0,<5.0.0
+pytest-xdist>=3.5.0,<4.0.0
+httpx>=0.25.2,<1.0.0
 
 # Development tools
-black==23.11.0
-flake8==6.1.0
-mypy==1.7.1
+black>=24.0.0,<25.0.0
+flake8>=7.0.0,<8.0.0
+mypy>=1.7.1,<2.0.0
+types-requests>=2.31.0,<3.0.0
 
 # Monitoring and logging
 structlog==23.2.0
