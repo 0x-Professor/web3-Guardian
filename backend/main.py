@@ -169,31 +169,99 @@ async def fetch_contract_details(contract_address: str, network: str) -> Dict[st
             detail=f"Failed to fetch contract details: {str(e)}"
         )
 
-def perform_static_analysis(contract_address: str, network: str):
+
 async def perform_static_analysis(contract_address: str, network: str) -> Dict[str, Any]:
-    """Perform static analysis on a smart contract."""
-    # TODO: Implement actual static analysis using Slither, Mythril, etc.
-    logger.info(f"Starting static analysis for {contract_address} on {network}")
+    """Perform static analysis on a smart contract.
     
-    # This is a placeholder - implement actual analysis
-    return {
-        "vulnerabilities": [
-            {
-                "severity": "medium",
-                "title": "Reentrancy Vulnerability",
-                "description": "Potential reentrancy vulnerability found in withdraw function",
-                "location": "contracts/Vault.sol:42-58"
-            }
-        ],
-        "optimizations": [
-            {
-                "title": "Gas Optimization",
-                "description": "Use unchecked for arithmetic operations where overflow is not possible",
-                "location": "contracts/Vault.sol:23"
-            }
-        ],
-        "security_score": 7.5
-    }
+    Args:
+        contract_address: The address of the smart contract
+        network: The network the contract is deployed on
+        
+    Returns:
+        Dict containing static analysis results
+    """
+    logger.info(f"Performing static analysis on {contract_address} on {network}")
+    
+    try:
+        # Fetch contract details first
+        contract_details = await fetch_contract_details(contract_address, network)
+        
+        # Initialize results
+        analysis_results = {
+            "vulnerabilities": [],
+            "optimizations": [],
+            "security_score": 0.0,
+            "warnings": [],
+            "is_verified": contract_details["is_verified"],
+            "contract_type": contract_details["metadata"].get("contract_name", "Unknown"),
+            "compiler_version": contract_details["metadata"].get("compiler_version", "Unknown"),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        # Skip static analysis if contract is not verified
+        if not contract_details["is_verified"]:
+            analysis_results["warnings"].append(
+                "Contract source code is not verified. Static analysis is limited."
+            )
+            return analysis_results
+        
+        # Basic static analysis checks
+        source_code = contract_details.get("source", {})
+        if source_code:
+            # Convert source code to string for basic pattern matching
+            source_text = json.dumps(source_code).lower()
+            
+            # Check for selfdestruct
+            if 'selfdestruct' in source_text:
+                analysis_results["vulnerabilities"].append({
+                    "severity": "high",
+                    "title": "Self-Destruct Function",
+                    "description": "Contract contains selfdestruct which can lead to fund loss",
+                    "recommendation": "Avoid using selfdestruct unless absolutely necessary"
+                })
+            
+            # Check for delegatecall
+            if 'delegatecall' in source_text:
+                analysis_results["vulnerabilities"].append({
+                    "severity": "high",
+                    "title": "DelegateCall Usage",
+                    "description": "Contract uses delegatecall which can be dangerous if not used carefully",
+                    "recommendation": "Review delegatecall usage and ensure proper access controls"
+                })
+            
+            # Check for reentrancy patterns
+            if any(keyword in source_text for keyword in ['.call', '.send', '.transfer']):
+                analysis_results["vulnerabilities"].append({
+                    "severity": "medium",
+                    "title": "Potential Reentrancy Risk",
+                    "description": "Contract makes external calls which could lead to reentrancy",
+                    "recommendation": "Use checks-effects-interactions pattern or reentrancy guards"
+                })
+        
+        # Update security score based on findings
+        if analysis_results["vulnerabilities"]:
+            # Deduct points based on severity (high: -2, medium: -1, low: -0.5)
+            score_deduction = sum(
+                -2 if v["severity"] == "high" else 
+                -1 if v["severity"] == "medium" else -0.5 
+                for v in analysis_results["vulnerabilities"]
+            )
+            analysis_results["security_score"] = max(0.0, 10.0 + score_deduction)
+        else:
+            analysis_results["security_score"] = 10.0
+            
+        return analysis_results
+        
+    except Exception as e:
+        logger.error(f"Static analysis failed: {str(e)}")
+        return {
+            "vulnerabilities": [],
+            "optimizations": [],
+            "security_score": 0.0,
+            "warnings": [f"Static analysis failed: {str(e)}"],
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
 async def perform_dynamic_analysis(contract_address: str, network: str) -> Dict[str, Any]:
     """Perform dynamic analysis using Tenderly.
