@@ -153,11 +153,11 @@ Web3 Guardian is a comprehensive security suite for Web3 that combines a browser
 4. **Configure environment**
    ```bash
    # Required API keys and configuration
-   export GEMINI_API_KEY="AIzaSyBOc_PsNyd0SZSwwCe9fk9PEhfPMpJkWQw"
+   export GEMINI_API_KEY="your_actual_api_key"
    export TENDERLY_API_KEY="your_tenderly_api_key"
-   export TENDERLY_ACCOUNT_SLUG="0xProfessor"
+   export TENDERLY_ACCOUNT_SLUG="account"
    export TENDERLY_PROJECT_SLUG="project"
-   export TENDERLY_SECRET_TOKEN="VufhEuJvtT-eKwDw8txlpPbMHVPgbiGC"
+   export TENDERLY_SECRET_TOKEN="your-tenderly-secret-token"
    export DATABASE_URL="postgresql://user:pass@localhost/web3guardian"
    export REDIS_URL="redis://localhost:6379/0"
    ```
@@ -312,7 +312,7 @@ REDIS_URL=redis://redis-host:6379/0
 # API Keys
 GEMINI_API_KEY=your-production-gemini-key
 TENDERLY_API_KEY=your-production-tenderly-key
-TENDERLY_ACCOUNT_SLUG=0xProfessor
+TENDERLY_ACCOUNT_SLUG=account
 TENDERLY_PROJECT_SLUG=project
 TENDERLY_SECRET_TOKEN=your-production-tenderly-token
 
