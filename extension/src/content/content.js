@@ -1834,24 +1834,324 @@ function setupMutationObserver() {
   return observer;
 }
 
-// Add mutation observer to initialization
-async function initializeWithMutationObserver() {
-  await initialize();
+// Main initialization function
+async function initialize() {
+  if (isInitialized) {
+    logDebug('Content script already initialized');
+    return;
+  }
   
-  // Setup mutation observer for dynamic content changes
-  if (document.readyState === 'complete') {
-    setupMutationObserver();
-  } else {
-    window.addEventListener('load', setupMutationObserver);
+  logInfo('🚀 Initializing Web3 Guardian content script...');
+  
+  try {
+    // Detect and intercept Web3 provider
+    const provider = await detectAndInterceptWeb3Provider();
+    originalProvider = provider;
+    
+    // Create comprehensive proxy
+    providerProxy = createProviderProxy(provider);
+    
+    // Replace the original provider with our proxy
+    Object.defineProperty(window, 'ethereum', {
+      value: providerProxy,
+      writable: false,
+      configurable: false
+    });
+    
+    // Set up event listeners for provider events
+    setupProviderEventListeners(providerProxy);
+    
+    // Perform initial dApp analysis
+    const dAppInfo = await analyzeDApp();
+    
+    // Send initial analysis to background
+    await sendMessageToBackground({
+      type: 'DAPP_DETECTED',
+      data: dAppInfo
+    }).catch(err => logError('Failed to send initial dApp analysis:', err));
+    
+    // Set up periodic monitoring
+    setupPeriodicMonitoring();
+    
+    // Set up network change monitoring
+    setupNetworkMonitoring();
+    
+    // Set up account change monitoring
+    setupAccountMonitoring();
+    
+    isInitialized = true;
+    logInfo('✅ Web3 Guardian content script initialized successfully');
+    
+  } catch (error) {
+    logError('❌ Failed to initialize Web3 Guardian:', error);
+    
+    // Still mark as initialized to prevent retry loops
+    isInitialized = true;
+    
+    // Send error notification to background
+    sendMessageToBackground({
+      type: 'INITIALIZATION_ERROR',
+      data: {
+        error: error.message,
+        url: window.location.href,
+        timestamp: Date.now()
+      }
+    }).catch(err => logError('Failed to send initialization error:', err));
   }
 }
 
-// Override the initialize call
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializeWithMutationObserver);
-} else {
-  initializeWithMutationObserver();
+// Set up provider event listeners
+function setupProviderEventListeners(provider) {
+  if (!provider || !provider.on) return;
+  
+  try {
+    // Account changes
+    provider.on('accountsChanged', (accounts) => {
+      logInfo('🔄 Accounts changed:', accounts);
+      connectedAccounts = accounts || [];
+      
+      sendMessageToBackground({
+        type: 'ACCOUNTS_CHANGED',
+        data: {
+          accounts: connectedAccounts,
+          url: window.location.href,
+          timestamp: Date.now()
+        }
+      }).catch(err => logError('Failed to notify account change:', err));
+    });
+    
+    // Chain changes
+    provider.on('chainChanged', (chainId) => {
+      logInfo('🔄 Chain changed:', chainId);
+      currentChainId = chainId;
+      
+      sendMessageToBackground({
+        type: 'CHAIN_CHANGED',
+        data: {
+          chainId,
+          networkName: getNetworkName(parseInt(chainId, 16)),
+          url: window.location.href,
+          timestamp: Date.now()
+        }
+      }).catch(err => logError('Failed to notify chain change:', err));
+    });
+    
+    // Connection changes
+    provider.on('connect', (connectInfo) => {
+      logInfo('🔗 Provider connected:', connectInfo);
+      
+      sendMessageToBackground({
+        type: 'PROVIDER_CONNECTED',
+        data: {
+          ...connectInfo,
+          url: window.location.href,
+          timestamp: Date.now()
+        }
+      }).catch(err => logError('Failed to notify provider connection:', err));
+    });
+    
+    // Disconnection
+    provider.on('disconnect', (error) => {
+      logInfo('🔌 Provider disconnected:', error);
+      connectedAccounts = [];
+      currentChainId = null;
+      
+      sendMessageToBackground({
+        type: 'PROVIDER_DISCONNECTED',
+        data: {
+          error: error?.message || 'Unknown disconnection',
+          url: window.location.href,
+          timestamp: Date.now()
+        }
+      }).catch(err => logError('Failed to notify provider disconnection:', err));
+    });
+    
+  } catch (error) {
+    logError('Error setting up provider event listeners:', error);
+  }
 }
 
+// Set up periodic monitoring
+function setupPeriodicMonitoring() {
+  // Monitor for new contract addresses every 30 seconds
+  setInterval(async () => {
+    try {
+      const newAddresses = await extractContractAddressesAdvanced();
+      if (newAddresses.length > 0) {
+        sendMessageToBackground({
+          type: 'NEW_CONTRACTS_DETECTED',
+          data: {
+            addresses: newAddresses,
+            url: window.location.href,
+            timestamp: Date.now()
+          }
+        }).catch(err => logError('Failed to send new contracts:', err));
+      }
+    } catch (error) {
+      logError('Error in periodic contract monitoring:', error);
+    }
+  }, 30000);
+  
+  // Clean up old intercepted requests every 5 minutes
+  setInterval(() => {
+    const now = Date.now();
+    const fiveMinutesAgo = now - (5 * 60 * 1000);
+    
+    for (const [requestId, request] of interceptedRequests.entries()) {
+      if (request.timestamp < fiveMinutesAgo) {
+        interceptedRequests.delete(requestId);
+      }
+    }
+  }, 300000);
+}
+
+// Set up network monitoring
+function setupNetworkMonitoring() {
+  if (!window.ethereum) return;
+  
+  // Check network periodically
+  setInterval(async () => {
+    try {
+      const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+      if (chainId !== currentChainId) {
+        currentChainId = chainId;
+        logInfo('🔄 Network change detected:', chainId);
+        
+        sendMessageToBackground({
+          type: 'NETWORK_CHANGE_DETECTED',
+          data: {
+            chainId,
+            networkName: getNetworkName(parseInt(chainId, 16)),
+            url: window.location.href,
+            timestamp: Date.now()
+          }
+        }).catch(err => logError('Failed to notify network change:', err));
+      }
+    } catch (error) {
+      // Network request failed, possibly disconnected
+      if (currentChainId !== null) {
+        currentChainId = null;
+        logInfo('🔌 Network disconnected');
+      }
+    }
+  }, 10000); // Check every 10 seconds
+}
+
+// Set up account monitoring
+function setupAccountMonitoring() {
+  if (!window.ethereum) return;
+  
+  // Check accounts periodically
+  setInterval(async () => {
+    try {
+      const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+      const accountsStr = JSON.stringify(accounts.sort());
+      const currentAccountsStr = JSON.stringify(connectedAccounts.sort());
+      
+      if (accountsStr !== currentAccountsStr) {
+        connectedAccounts = accounts || [];
+        logInfo('🔄 Account change detected:', accounts);
+        
+        sendMessageToBackground({
+          type: 'ACCOUNT_CHANGE_DETECTED',
+          data: {
+            accounts: connectedAccounts,
+            url: window.location.href,
+            timestamp: Date.now()
+          }
+        }).catch(err => logError('Failed to notify account change:', err));
+      }
+    } catch (error) {
+      // Account request failed, possibly disconnected
+      if (connectedAccounts.length > 0) {
+        connectedAccounts = [];
+        logInfo('🔌 Accounts disconnected');
+      }
+    }
+  }, 15000); // Check every 15 seconds
+}
+
+// Enhanced error handling for uncaught errors
+window.addEventListener('error', (event) => {
+  if (event.error && event.error.message && event.error.message.includes('Web3 Guardian')) {
+    logError('Web3 Guardian error caught:', {
+      message: event.error.message,
+      stack: event.error.stack,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno
+    });
+    
+    sendMessageToBackground({
+      type: 'CONTENT_SCRIPT_ERROR',
+      data: {
+        error: event.error.message,
+        stack: event.error.stack,
+        url: window.location.href,
+        timestamp: Date.now()
+      }
+    }).catch(err => logError('Failed to send error report:', err));
+  }
+});
+
+// Enhanced unhandled promise rejection handling
+window.addEventListener('unhandledrejection', (event) => {
+  if (event.reason && event.reason.message && event.reason.message.includes('Web3 Guardian')) {
+    logError('Web3 Guardian promise rejection:', event.reason);
+    
+    sendMessageToBackground({
+      type: 'CONTENT_SCRIPT_REJECTION',
+      data: {
+        error: event.reason.message || 'Unknown promise rejection',
+        url: window.location.href,
+        timestamp: Date.now()
+      }
+    }).catch(err => logError('Failed to send rejection report:', err));
+  }
+});
+
+// Page visibility change handling
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    logDebug('Page became visible, refreshing state...');
+    
+    // Refresh provider state when page becomes visible
+    if (window.ethereum && isInitialized) {
+      window.ethereum.request({ method: 'eth_accounts' })
+        .then(accounts => {
+          if (JSON.stringify(accounts) !== JSON.stringify(connectedAccounts)) {
+            connectedAccounts = accounts || [];
+            sendMessageToBackground({
+              type: 'ACCOUNTS_REFRESHED',
+              data: {
+                accounts: connectedAccounts,
+                url: window.location.href,
+                timestamp: Date.now()
+              }
+            }).catch(err => logError('Failed to send account refresh:', err));
+          }
+        })
+        .catch(err => logError('Failed to refresh accounts:', err));
+    }
+  }
+});
+
+// Handle page unload
+window.addEventListener('beforeunload', () => {
+  if (isInitialized) {
+    sendMessageToBackground({
+      type: 'PAGE_UNLOADING',
+      data: {
+        url: window.location.href,
+        timestamp: Date.now(),
+        sessionDuration: Date.now() - (window.web3GuardianStartTime || Date.now())
+      }
+    }).catch(() => {}); // Ignore errors on unload
+  }
+});
+
+// Set start time for session tracking
+window.web3GuardianStartTime = Date.now();
+
 // Also try to initialize immediately in case provider is already available
-setTimeout(initializeWithMutationObserver, 100);
+setTimeout(initialize, 100);
