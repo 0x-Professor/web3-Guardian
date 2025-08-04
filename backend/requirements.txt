@@ -58,9 +58,9 @@ redis==5.0.1
 python-memcached==1.59
 
 # Authentication and security
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-cryptography==41.0.8
+python-jose[cryptography]
+passlib[bcrypt]
+cryptography
 
 # Database (optional)
 sqlalchemy==2.0.23
