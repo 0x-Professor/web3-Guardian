@@ -1,18 +1,82 @@
-fastapi>=0.68.0,<1.0.0
-uvicorn>=0.15.0,<1.0.0
-python-dotenv>=0.19.0,<2.0.0
-web3>=5.31.1,<6.0.0
-langchain>=0.0.200,<1.0.0
+# Core FastAPI and server dependencies
+fastapi>=0.104.0,<1.0.0
+uvicorn[standard]>=0.24.0,<1.0.0
+python-dotenv>=1.0.0,<2.0.0
+pydantic>=2.0.0,<3.0.0
+python-multipart>=0.0.6,<1.0.0
+
+# Web3 and blockchain dependencies
+web3>=6.11.0,<7.0.0
+eth-account>=0.9.0,<1.0.0
+eth-utils>=2.2.0,<3.0.0
+requests>=2.31.0,<3.0.0
+
+# Google Gemini AI
+google-generativeai>=0.3.0,<1.0.0
+
+# LangChain for RAG implementation
+langchain>=0.1.0,<1.0.0
 langchain-community>=0.0.10,<1.0.0
-openai>=0.27.0,<2.0.0
+langchain-google-genai>=0.0.6,<1.0.0
+langchain-chroma>=0.1.0,<1.0.0
+
+# Vector database and embeddings
+chromadb>=0.4.15,<1.0.0
+sentence-transformers>=2.2.2,<3.0.0
+tiktoken>=0.5.1,<1.0.0
+
+# Tenderly integration
+tenderly-python>=0.1.0,<1.0.0
+httpx>=0.25.0,<1.0.0
+
+# Security analysis tools
+slither-analyzer>=0.10.0,<1.0.0
+mythril>=0.24.0,<1.0.0
+
+# Data processing and analysis
+pandas>=2.0.0,<3.0.0
+numpy>=1.24.0,<2.0.0
+beautifulsoup4>=4.12.0,<5.0.0
+lxml>=4.9.0,<5.0.0
+
+# Caching and performance
+redis>=5.0.0,<6.0.0
+aioredis>=2.0.0,<3.0.0
+
+# Authentication and security
 python-jose[cryptography]>=3.3.0,<4.0.0
 passlib[bcrypt]>=1.7.4,<2.0.0
-python-multipart>=0.0.5,<1.0.0
-pydantic>=1.8.0,<3.0.0
-requests>=2.26.0,<3.0.0
-pytest>=6.2.5,<8.0.0
-pytest-asyncio>=0.15.1,<1.0.0
-httpx>=0.19.0,<1.0.0
-tenderly>=0.8.0,<1.0.0
-protobuf>=5.26.1,<6.0.0  # Required by grpcio-status
+cryptography>=41.0.0,<42.0.0
+
+# Database (optional)
+sqlalchemy>=2.0.0,<3.0.0
+alembic>=1.12.0,<2.0.0
+
+# Rate limiting and middleware
+slowapi>=0.1.9,<1.0.0
+
+# Testing dependencies
+pytest>=7.4.0,<8.0.0
+pytest-asyncio>=0.21.0,<1.0.0
+pytest-mock>=3.11.0,<4.0.0
+httpx>=0.25.0,<1.0.0
+
+# Development tools
+black>=23.0.0,<24.0.0
+isort>=5.12.0,<6.0.0
+flake8>=6.0.0,<7.0.0
+mypy>=1.5.0,<2.0.0
+
+# Monitoring and logging
+structlog>=23.1.0,<24.0.0
+sentry-sdk[fastapi]>=1.32.0,<2.0.0
+
+# File processing
+PyPDF2>=3.0.0,<4.0.0
+openpyxl>=3.1.0,<4.0.0
+
+# Additional utilities
+python-dateutil>=2.8.2,<3.0.0
+pytz>=2023.3
+jinja2>=3.1.0,<4.0.0
 
