@@ -1,122 +1,181 @@
-import os
-from pathlib import Path
-from typing import Dict, Any, Optional, List
-from pydantic import BaseSettings, Field, validator
-from dotenv import load_dotenv
+"""
+Configuration settings for Web3 Guardian backend
+"""
 
-# Load environment variables from .env file if it exists
-env_path = Path(__file__).parent.parent.parent / '.env'
-load_dotenv(dotenv_path=env_path)
+import os
+from typing import Optional, List
+from pydantic_settings import BaseSettings
+from pydantic import Field
 
 class Settings(BaseSettings):
-    # Application settings
-    APP_NAME: str = "Web3 Guardian Backend"
-    DEBUG: bool = False
-    ENVIRONMENT: str = "production"
+    # Basic API settings
+    API_V1_STR: str = "/api/v1"
+    PROJECT_NAME: str = "Web3 Guardian"
+    VERSION: str = "1.0.0"
+    DESCRIPTION: str = "Advanced Smart Contract Security Analysis Platform"
     
     # Server settings
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    WORKERS: int = 1
+    DEBUG: bool = False
     RELOAD: bool = False
     
+    # Security settings
+    SECRET_KEY: str = Field(default="your-secret-key-change-in-production")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ALGORITHM: str = "HS256"
+    
     # CORS settings
-    CORS_ORIGINS: List[str] = ["*"]
-    CORS_METHODS: List[str] = ["*"]
-    CORS_HEADERS: List[str] = ["*"]
-    
-    # API settings
-    API_PREFIX: str = "/api"
-    API_V1_STR: str = "/v1"
-    
-    # Security
-    SECRET_KEY: str = Field(..., env="SECRET_KEY")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    BACKEND_CORS_ORIGINS: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:8080", 
+        "chrome-extension://*"
+    ]
     
     # Database settings (optional)
-    DATABASE_URL: Optional[str] = Field(None, env="DATABASE_URL")
+    DATABASE_URL: Optional[str] = None
     
-    # Google Gemini AI settings
-    GOOGLE_API_KEY: Optional[str] = Field(None, env="GOOGLE_API_KEY")
-    GEMINI_MODEL: str = Field("gemini-1.5-pro", env="GEMINI_MODEL")
-    
-    # Tenderly settings
-    TENDERLY_ACCESS_KEY: Optional[str] = Field(None, env="TENDERLY_ACCESS_KEY")
-    TENDERLY_PROJECT: Optional[str] = Field(None, env="TENDERLY_PROJECT")
-    TENDERLY_USERNAME: Optional[str] = Field(None, env="TENDERLY_USERNAME")
-    TENDERLY_ACCOUNT_ID: Optional[str] = Field(None, env="TENDERLY_ACCOUNT_ID")
+    # Redis settings for caching
+    REDIS_URL: str = "redis://localhost:6379"
+    CACHE_TTL: int = 3600  # 1 hour
     
     # Web3 settings
-    WEB3_PROVIDER_URI: str = Field("https://mainnet.infura.io/v3/YOUR-PROJECT-ID", env="WEB3_PROVIDER_URI")
-    INFURA_PROJECT_ID: Optional[str] = Field(None, env="INFURA_PROJECT_ID")
-    ALCHEMY_API_KEY: Optional[str] = Field(None, env="ALCHEMY_API_KEY")
-    CHAIN_ID: int = Field(1, env="CHAIN_ID")
+    WEB3_PROVIDER_URL: str = "https://mainnet.infura.io/v3/your-project-id"
+    ETHERSCAN_API_KEY: Optional[str] = None
     
-    # Blockchain API Keys
-    ETHERSCAN_API_KEY: Optional[str] = Field(None, env="ETHERSCAN_API_KEY")
-    POLYGONSCAN_API_KEY: Optional[str] = Field(None, env="POLYGONSCAN_API_KEY")
-    BSCSCAN_API_KEY: Optional[str] = Field(None, env="BSCSCAN_API_KEY")
+    # Google Gemini AI settings
+    GOOGLE_API_KEY: Optional[str] = Field(default=None, description="Google API key for Gemini")
+    GEMINI_MODEL: str = "gemini-1.5-pro"
+    TEMPERATURE: float = 0.1
+    MAX_TOKENS: int = 8192
     
-    # Vector Database settings (for RAG)
-    PINECONE_API_KEY: Optional[str] = Field(None, env="PINECONE_API_KEY")
-    PINECONE_ENVIRONMENT: Optional[str] = Field(None, env="PINECONE_ENVIRONMENT")
-    PINECONE_INDEX_NAME: str = Field("smart-contracts-knowledge", env="PINECONE_INDEX_NAME")
+    # RAG and Vector Database settings
+    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    CHROMA_PERSIST_DIRECTORY: str = "./data/chroma_db"
+    KNOWLEDGE_BASE_PATH: str = "./data/knowledge_base"
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 200
     
-    # ChromaDB settings (alternative vector DB)
-    CHROMA_PERSIST_DIRECTORY: str = Field("./chroma_db", env="CHROMA_PERSIST_DIRECTORY")
+    # Vector search settings
+    SIMILARITY_THRESHOLD: float = 0.7
+    MAX_RETRIEVAL_DOCS: int = 5
     
-    # Caching settings
-    REDIS_URL: str = Field("redis://localhost:6379/0", env="REDIS_URL")
-    CACHE_TTL: int = Field(3600, env="CACHE_TTL")  # 1 hour
+    # Tenderly simulation settings
+    TENDERLY_ACCESS_KEY: Optional[str] = None
+    TENDERLY_PROJECT: Optional[str] = None
+    TENDERLY_USERNAME: Optional[str] = None
+    TENDERLY_FORK_ID: Optional[str] = None
+    TENDERLY_API_URL: str = "https://api.tenderly.co"
     
-    # Logging
-    LOG_LEVEL: str = Field("INFO", env="LOG_LEVEL")
-    LOG_FORMAT: str = Field("json", env="LOG_FORMAT")
-    LOG_FILE: Optional[str] = Field("logs/web3-guardian.log", env="LOG_FILE")
+    # Analysis settings
+    MAX_CONTRACT_SIZE: int = 1000000  # 1MB
+    ANALYSIS_TIMEOUT: int = 300  # 5 minutes
+    CONCURRENT_ANALYSES: int = 5
+    
+    # Security tool settings
+    SLITHER_TIMEOUT: int = 120
+    MYTHRIL_TIMEOUT: int = 180
+    ENABLE_STATIC_ANALYSIS: bool = True
+    ENABLE_DYNAMIC_ANALYSIS: bool = True
     
     # Rate limiting
-    RATE_LIMIT: str = Field("100/minute", env="RATE_LIMIT")
+    RATE_LIMIT_PER_MINUTE: int = 60
+    RATE_LIMIT_BURST: int = 100
     
-    # Security Analysis settings
-    SECURITY_ANALYSIS_TIMEOUT: int = Field(30, env="SECURITY_ANALYSIS_TIMEOUT")
-    MAX_CONTRACT_SIZE: int = Field(1000000, env="MAX_CONTRACT_SIZE")
-    ENABLE_DEEP_ANALYSIS: bool = Field(True, env="ENABLE_DEEP_ANALYSIS")
+    # Monitoring and logging
+    LOG_LEVEL: str = "INFO"
+    SENTRY_DSN: Optional[str] = None
+    ENABLE_METRICS: bool = True
+    METRICS_PORT: int = 9090
     
-    # Report Generation settings
-    REPORT_STORAGE_PATH: str = Field("./reports", env="REPORT_STORAGE_PATH")
-    MAX_REPORT_SIZE: str = Field("50MB", env="MAX_REPORT_SIZE")
+    # File storage
+    UPLOAD_DIR: str = "./uploads"
+    MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
+    ALLOWED_FILE_TYPES: List[str] = [".sol", ".json", ".txt"]
     
-    # RAG Pipeline settings
-    EMBEDDING_MODEL: str = Field("sentence-transformers/all-MiniLM-L6-v2", env="EMBEDDING_MODEL")
-    CHUNK_SIZE: int = Field(1000, env="CHUNK_SIZE")
-    CHUNK_OVERLAP: int = Field(200, env="CHUNK_OVERLAP")
-    MAX_TOKENS: int = Field(4000, env="MAX_TOKENS")
-    TEMPERATURE: float = Field(0.1, env="TEMPERATURE")
+    # External API settings
+    COINGECKO_API_URL: str = "https://api.coingecko.com/api/v3"
+    DEFILAMA_API_URL: str = "https://api.llama.fi"
     
-    # Knowledge Base settings
-    KNOWLEDGE_BASE_PATH: str = Field("./knowledge_base", env="KNOWLEDGE_BASE_PATH")
-    AUTO_UPDATE_KNOWLEDGE: bool = Field(True, env="AUTO_UPDATE_KNOWLEDGE")
+    # Blockchain network settings
+    SUPPORTED_NETWORKS: List[str] = [
+        "ethereum", "polygon", "bsc", "arbitrum", "optimism", "avalanche"
+    ]
+    DEFAULT_NETWORK: str = "ethereum"
+    
+    # Gas analysis settings
+    GAS_PRICE_API: str = "https://api.etherscan.io/api"
+    GAS_OPTIMIZATION_THRESHOLD: float = 0.1  # 10% improvement threshold
+    
+    # Smart contract verification
+    ETHERSCAN_VERIFY_URL: str = "https://api.etherscan.io/api"
+    SOURCIFY_API_URL: str = "https://sourcify.dev/server"
+    
+    # AI model settings
+    AI_CONFIDENCE_THRESHOLD: float = 0.7
+    MIN_ANALYSIS_CONFIDENCE: float = 0.6
+    
+    # Batch processing
+    BATCH_SIZE: int = 10
+    MAX_BATCH_SIZE: int = 100
+    BATCH_TIMEOUT: int = 600  # 10 minutes
+    
+    # WebSocket settings
+    WS_HEARTBEAT_INTERVAL: int = 30
+    WS_MAX_CONNECTIONS: int = 100
+    
+    # Development settings
+    ENABLE_SWAGGER: bool = True
+    ENABLE_REDOC: bool = True
+    ENABLE_DEBUG_TOOLBAR: bool = False
     
     class Config:
-        case_sensitive = True
         env_file = ".env"
         env_file_encoding = "utf-8"
-    
-    @validator("CORS_ORIGINS", "CORS_METHODS", "CORS_HEADERS", pre=True)
-    def assemble_cors_origins(cls, v):
-        if isinstance(v, str):
-            return [i.strip() for i in v.split(",")]
-        return v
+        case_sensitive = True
 
-# Create settings instance
+# Create global settings instance
 settings = Settings()
 
-# Ensure required directories exist
-for directory in [
-    settings.LOG_FILE and Path(settings.LOG_FILE).parent,
-    Path(settings.REPORT_STORAGE_PATH),
-    Path(settings.KNOWLEDGE_BASE_PATH),
-    Path(settings.CHROMA_PERSIST_DIRECTORY)
-]:
-    if directory:
-        directory.mkdir(parents=True, exist_ok=True)
+# Validation functions
+def validate_api_keys():
+    """Validate that required API keys are present"""
+    missing_keys = []
+    
+    if not settings.GOOGLE_API_KEY:
+        missing_keys.append("GOOGLE_API_KEY")
+    
+    if not settings.ETHERSCAN_API_KEY:
+        missing_keys.append("ETHERSCAN_API_KEY")
+        
+    if missing_keys:
+        print(f"Warning: Missing API keys: {', '.join(missing_keys)}")
+        print("Some features may be disabled.")
+
+def get_network_config(network: str) -> dict:
+    """Get configuration for specific blockchain network"""
+    network_configs = {
+        "ethereum": {
+            "rpc_url": "https://mainnet.infura.io/v3/your-project-id",
+            "chain_id": 1,
+            "explorer": "https://etherscan.io",
+            "api_url": "https://api.etherscan.io/api"
+        },
+        "polygon": {
+            "rpc_url": "https://polygon-mainnet.infura.io/v3/your-project-id", 
+            "chain_id": 137,
+            "explorer": "https://polygonscan.com",
+            "api_url": "https://api.polygonscan.com/api"
+        },
+        "bsc": {
+            "rpc_url": "https://bsc-dataseed1.binance.org",
+            "chain_id": 56,
+            "explorer": "https://bscscan.com",
+            "api_url": "https://api.bscscan.com/api"
+        }
+    }
+    
+    return network_configs.get(network, network_configs["ethereum"])
+
+# Initialize validation on import
+validate_api_keys()
