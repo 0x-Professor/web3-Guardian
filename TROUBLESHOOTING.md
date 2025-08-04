@@ -134,14 +134,14 @@ TenderlyError: Failed to authenticate with Tenderly API
 1. Verify API credentials in `.env`:
    ```bash
    TENDERLY_API_KEY=your_actual_api_key
-   TENDERLY_ACCOUNT_SLUG=0xProfessor
+   TENDERLY_ACCOUNT_SLUG=account
    TENDERLY_PROJECT_SLUG=project
-   TENDERLY_SECRET_TOKEN=VufhEuJvtT-eKwDw8txlpPbMHVPgbiGC
+   TENDERLY_SECRET_TOKEN=your-tenderly-secret-token
    ```
 2. Test API connection:
    ```bash
    curl -H "X-Access-Key: YOUR_API_KEY" \
-        https://api.tenderly.co/api/v1/account/0xProfessor/projects
+        https://api.tenderly.co/api/v1/account/account/projects
    ```
 3. Check Tenderly dashboard for project settings
 
@@ -156,12 +156,12 @@ google.auth.exceptions.DefaultCredentialsError
 **Solution**:
 1. Verify Gemini API key:
    ```bash
-   GEMINI_API_KEY=AIzaSyBOc_PsNyd0SZSwwCe9fk9PEhfPMpJkWQw
+   GEMINI_API_KEY=your_actual_api_key
    ```
 2. Test API access:
    ```python
    import google.generativeai as genai
-   genai.configure(api_key="your-api-key")
+   genai.configure(api_key="your_actual_api_key")
    model = genai.GenerativeModel('gemini-pro')
    response = model.generate_content("Hello")
    print(response.text)
