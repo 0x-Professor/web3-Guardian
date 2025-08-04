@@ -323,3 +323,78 @@ class TenderlyClient:
         network_id = self._get_network_id(network)
         base_url = self.network_map[network_id]["explorer"]
         return f"{base_url}/address/{address}"
+        
+    async def get_contract_source(self, contract_address: str, network: str = "mainnet") -> Dict[str, Any]:
+        """Fetch verified source code for a contract.
+        
+        Args:
+            contract_address: The contract address to fetch source for
+            network: Network name or ID
+            
+        Returns:
+            Dict containing contract source code and metadata
+            
+        Raises:
+            TenderlyError: If the request fails or contract is not verified
+        """
+        network_id = self._get_network_id(network)
+        endpoint = f"api/v1/account/{self.account_slug}/project/{self.project_slug}/contracts/{contract_address}/source"
+        
+        try:
+            return await self._make_api_request(
+                "GET",
+                endpoint,
+                params={"networkId": str(network_id)}
+            )
+        except Exception as e:
+            raise TenderlyError(f"Failed to fetch contract source: {str(e)}") from e
+    
+    async def get_contract_bytecode(self, contract_address: str, network: str = "mainnet") -> Dict[str, Any]:
+        """Fetch bytecode and deployed bytecode for a contract.
+        
+        Args:
+            contract_address: The contract address to fetch bytecode for
+            network: Network name or ID
+            
+        Returns:
+            Dict containing bytecode and deployed bytecode
+            
+        Raises:
+            TenderlyError: If the request fails
+        """
+        network_id = self._get_network_id(network)
+        endpoint = f"api/v1/account/{self.account_slug}/project/{self.project_slug}/contracts/{contract_address}/bytecode"
+        
+        try:
+            return await self._make_api_request(
+                "GET",
+                endpoint,
+                params={"networkId": str(network_id)}
+            )
+        except Exception as e:
+            raise TenderlyError(f"Failed to fetch contract bytecode: {str(e)}") from e
+    
+    async def get_contract_metadata(self, contract_address: str, network: str = "mainnet") -> Dict[str, Any]:
+        """Fetch metadata for a verified contract.
+        
+        Args:
+            contract_address: The contract address to fetch metadata for
+            network: Network name or ID
+            
+        Returns:
+            Dict containing contract metadata including ABI, source code, etc.
+            
+        Raises:
+            TenderlyError: If the request fails or contract is not verified
+        """
+        network_id = self._get_network_id(network)
+        endpoint = f"api/v1/account/{self.account_slug}/project/{self.project_slug}/contracts/{contract_address}"
+        
+        try:
+            return await self._make_api_request(
+                "GET",
+                endpoint,
+                params={"networkId": str(network_id)}
+            )
+        except Exception as e:
+            raise TenderlyError(f"Failed to fetch contract metadata: {str(e)}") from e
