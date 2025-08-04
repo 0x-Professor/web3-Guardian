@@ -602,3 +602,17 @@ redis-cli ping
 If you can't resolve your issue using this guide:
 
 1. **GitHub Issues**: [Create an issue](https://github.com/web3guardian/web3-guardian/issues)
+2. **Discord Community**: [Join our Discord](https://discord.gg/web3guardian)
+3. **Email Support**: [support@web3guardian.dev](mailto:support@web3guardian.dev)
+4. **Documentation**: [docs.web3guardian.dev](https://docs.web3guardian.dev)
+
+When reporting issues, please include:
+- Operating system and version
+- Python/Node.js versions
+- Full error messages and stack traces
+- Steps to reproduce the issue
+- Relevant configuration (without sensitive data)
+
+---
+
+*Last updated: August 4, 2025*
