@@ -44,10 +44,36 @@ class Settings(BaseSettings):
     ETHERSCAN_API_KEY: Optional[str] = None
     
     # Google Gemini AI settings
-    GOOGLE_API_KEY: Optional[str] = Field(default=None, description="Google API key for Gemini")
+    GOOGLE_API_KEY: Optional[str] = Field(default=os.getenv("GEMINI_API_KEY"), description="Google API key for Gemini")
     GEMINI_MODEL: str = "gemini-1.5-pro"
     TEMPERATURE: float = 0.1
     MAX_TOKENS: int = 8192
+    
+    # Tenderly settings
+    TENDERLY_ACCOUNT_SLUG: str = Field(default=os.getenv("TENDERLY_ACCOUNT_SLUG", "0xProfessor"))
+    TENDERLY_PROJECT_SLUG: str = Field(default=os.getenv("TENDERLY_PROJECT_SLUG", "project"))
+    TENDERLY_API_URL: str = Field(default=os.getenv("TENDERLY_API_URL"))
+    TENDERLY_TOKEN: str = Field(default=os.getenv("TENDERLY_TOKEN"))
+    
+    # Analysis settings
+    MAX_CONCURRENT_ANALYSIS: int = Field(default=int(os.getenv("MAX_CONCURRENT_ANALYSIS", 3)))
+    ANALYSIS_TIMEOUT: int = Field(default=int(os.getenv("ANALYSIS_TIMEOUT", 300000)))  # 5 minutes in milliseconds
+    
+    # Vector store settings
+    VECTOR_STORE_PATH: str = Field(default=os.getenv("VECTOR_STORE_PATH", "./data/vector_store"))
+    
+    # Web3 providers
+    ALCHEMY_API_KEY: Optional[str] = Field(default=os.getenv("ALCHEMY_API_KEY"))
+    INFURA_API_KEY: Optional[str] = Field(default=os.getenv("INFURA_API_KEY"))
+    
+    # Smart contract analysis settings
+    ENABLE_STATIC_ANALYSIS: bool = True
+    ENABLE_DYNAMIC_ANALYSIS: bool = True
+    MAX_GAS_LIMIT: int = 30000000  # 30 million gas
+    
+    # Report generation
+    REPORT_TEMPLATE_PATH: str = "./reports/templates/"
+    REPORT_OUTPUT_PATH: str = "./reports/generated/"
     
     # RAG and Vector Database settings
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
