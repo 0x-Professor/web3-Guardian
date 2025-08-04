@@ -7,7 +7,7 @@ The Web3 Guardian API is a FastAPI-based RESTful service that provides comprehen
 ## Base URL
 
 ```
-Production: https://api.web3guardian.dev
+Production: https://api.web3guardian.dev coming soon
 Development: http://localhost:8000
 ```
 
