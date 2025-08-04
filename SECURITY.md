@@ -163,3 +163,210 @@ To be eligible for rewards, you must:
 ### For Developers
 
 #### Code Security
+1. **Secure Coding Practices**
+   - Input validation and sanitization
+   - Output encoding for web content
+   - Proper error handling (no sensitive data in errors)
+   - Secure defaults and fail-safe mechanisms
+
+2. **Dependency Management**
+   - Regular dependency updates
+   - Vulnerability scanning with tools like `npm audit`, `safety`
+   - Pin dependency versions in production
+   - Monitor security advisories for dependencies
+
+3. **Authentication & Authorization**
+   - Implement proper session management
+   - Use secure token storage mechanisms
+   - Apply principle of least privilege
+   - Regular access reviews
+
+4. **Data Protection**
+   - Encrypt sensitive data at rest and in transit
+   - Implement proper key management
+   - Data minimization principles
+   - Secure data deletion procedures
+
+#### Infrastructure Security
+1. **Environment Security**
+   - Use environment variables for secrets
+   - Implement secrets rotation
+   - Network segmentation and firewalls
+   - Regular security audits
+
+2. **API Security**
+   - Rate limiting and throttling
+   - Request validation and sanitization
+   - Proper CORS configuration
+   - API versioning and deprecation policies
+
+3. **Database Security**
+   - Use prepared statements/parameterized queries
+   - Database connection encryption
+   - Regular backups with encryption
+   - Database access monitoring
+
+## Security Features
+
+### Built-in Protections
+
+#### Browser Extension
+- **Content Security Policy (CSP)**: Prevents XSS and code injection
+- **Manifest V3 Compliance**: Latest Chrome extension security standards
+- **Minimal Permissions**: Only requests necessary permissions
+- **Secure Communication**: HTTPS-only API communication
+- **Input Validation**: All user inputs are validated and sanitized
+
+#### Backend API
+- **Authentication & Authorization**: JWT-based authentication (planned)
+- **Rate Limiting**: Prevents abuse and DoS attacks
+- **Input Validation**: Pydantic models for request validation
+- **SQL Injection Prevention**: SQLAlchemy ORM with parameterized queries
+- **CORS Protection**: Configurable cross-origin request policies
+- **Security Headers**: HSTS, X-Frame-Options, X-Content-Type-Options
+
+#### Data Protection
+- **Encryption at Rest**: Database encryption for sensitive data
+- **Encryption in Transit**: TLS 1.3 for all communications
+- **Key Management**: Secure key storage and rotation
+- **Data Minimization**: Only collect necessary data
+- **Anonymization**: Remove PII where possible
+
+### Security Monitoring
+
+#### Logging & Monitoring
+- **Security Event Logging**: Authentication attempts, permission changes
+- **Anomaly Detection**: Unusual patterns in API usage
+- **Real-time Alerts**: Critical security events trigger immediate notifications
+- **Audit Trails**: Comprehensive logs for security investigations
+
+#### Vulnerability Management
+- **Automated Scanning**: Regular scans of codebase and dependencies
+- **Penetration Testing**: Annual third-party security assessments
+- **Code Reviews**: All changes undergo security review
+- **Threat Modeling**: Regular assessment of attack vectors
+
+## Third-party Security Audits
+
+We conduct regular security audits of our codebase and infrastructure:
+
+### Completed Audits
+- **Q4 2024**: Initial security assessment by [Security Firm]
+  - Scope: Browser extension and backend API
+  - Status: All high/critical issues resolved
+  - Report: Available upon request
+
+### Planned Audits
+- **Q2 2025**: Comprehensive security audit
+  - Smart contract analysis features
+  - RAG pipeline security
+  - Tenderly integration security
+
+### Audit Reports
+Security audit reports are available to:
+- Security researchers (upon request)
+- Enterprise customers
+- Regulatory bodies (when required)
+
+## Compliance & Standards
+
+### Regulatory Compliance
+- **GDPR**: EU General Data Protection Regulation compliance
+- **CCPA**: California Consumer Privacy Act compliance
+- **SOC 2 Type II**: Planned certification for 2025
+
+### Security Standards
+- **OWASP Top 10**: Regular assessment against web security risks
+- **NIST Cybersecurity Framework**: Aligned security practices
+- **ISO 27001**: Information security management system (planned)
+
+## Incident Response
+
+### Incident Classification
+
+| Severity | Description | Response Time |
+|----------|-------------|---------------|
+| P0 - Critical | Service down, data breach, active exploit | 15 minutes |
+| P1 - High | Significant functionality impacted | 1 hour |
+| P2 - Medium | Partial functionality impacted | 4 hours |
+| P3 - Low | Minor issues, scheduled maintenance | 24 hours |
+
+### Response Team
+- **Incident Commander**: Security lead
+- **Technical Response**: Engineering team
+- **Communications**: Marketing/PR team
+- **Legal/Compliance**: Legal counsel
+
+### Response Process
+1. **Detection & Assessment** (Within response time)
+2. **Containment** (Immediate for P0/P1)
+3. **Investigation** (Root cause analysis)
+4. **Resolution** (Fix implementation)
+5. **Recovery** (Service restoration)
+6. **Post-Incident Review** (Lessons learned)
+
+## Security Updates
+
+### Update Channels
+- **Critical Updates**: Automatic push to all users
+- **Security Bulletins**: Email notifications to subscribers
+- **Release Notes**: Detailed security improvements
+- **Blog Posts**: Major security enhancements
+
+### Notification Preferences
+Users can configure notification preferences at:
+- Extension settings page
+- Web dashboard (when available)
+- Email preferences portal
+
+## Security Training & Awareness
+
+### Developer Training
+- **Secure Coding**: Monthly training sessions
+- **Security Testing**: Hands-on workshops
+- **Threat Modeling**: Regular team exercises
+- **Incident Response**: Tabletop exercises
+
+### User Education
+- **Security Blog**: Regular security tips and best practices
+- **Webinars**: Monthly security awareness sessions
+- **Documentation**: Comprehensive security guides
+- **Community**: Discord security channel for questions
+
+## Contact Information
+
+### Security Team
+- **Primary Contact**: [security@web3guardian.dev](mailto:security@web3guardian.dev)
+- **Emergency Contact**: [emergency@web3guardian.dev](mailto:emergency@web3guardian.dev)
+- **Security Lead**: [ciso@web3guardian.dev](mailto:ciso@web3guardian.dev)
+
+### Other Contacts
+- **Privacy**: [privacy@web3guardian.dev](mailto:privacy@web3guardian.dev)
+- **Compliance**: [compliance@web3guardian.dev](mailto:compliance@web3guardian.dev)
+- **General Support**: [support@web3guardian.dev](mailto:support@web3guardian.dev)
+
+### PGP Keys
+Public keys for secure communication are available at:
+- [https://web3guardian.dev/security/pgp-keys](https://web3guardian.dev/security/pgp-keys)
+
+## Security Metrics & Transparency
+
+### Public Metrics (Updated Monthly)
+- Number of vulnerability reports received
+- Average response time by severity
+- Number of security updates released
+- User adoption rate of security updates
+
+### Transparency Reports (Annual)
+- Security incidents and response
+- Vulnerability disclosure statistics
+- Third-party audit summaries
+- Compliance certifications status
+
+---
+
+**Version**: 2.0
+**Last Updated**: August 4, 2025
+**Next Review**: November 4, 2025
+
+*This security policy is reviewed quarterly and updated as needed to reflect current threats and best practices.*
