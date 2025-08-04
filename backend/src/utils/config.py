@@ -4,8 +4,14 @@ Configuration settings for Web3 Guardian backend
 
 import os
 from typing import Optional, List
+from pathlib import Path
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
+
+# Load environment variables from .env file
+env_path = Path(__file__).resolve().parents[3] / '.env'
+load_dotenv(dotenv_path=env_path)
 
 class Settings(BaseSettings):
     # Basic API settings
@@ -52,8 +58,14 @@ class Settings(BaseSettings):
     # Tenderly settings
     TENDERLY_ACCOUNT_SLUG: str = Field(default=os.getenv("TENDERLY_ACCOUNT_SLUG", "0xProfessor"))
     TENDERLY_PROJECT_SLUG: str = Field(default=os.getenv("TENDERLY_PROJECT_SLUG", "project"))
-    TENDERLY_API_URL: str = Field(default=os.getenv("TENDERLY_API_URL"))
+    TENDERLY_API_URL: str = Field(default=os.getenv("TENDERLY_API_URL", "https://api.tenderly.co/api/v1"))
     TENDERLY_TOKEN: str = Field(default=os.getenv("TENDERLY_TOKEN"))
+    
+    @field_validator('TENDERLY_TOKEN')
+    def validate_tenderly_token(cls, v):
+        if not v:
+            raise ValueError("TENDERLY_TOKEN environment variable is not set")
+        return v
     
     # Analysis settings
     MAX_CONCURRENT_ANALYSIS: int = Field(default=int(os.getenv("MAX_CONCURRENT_ANALYSIS", 3)))
@@ -161,7 +173,14 @@ class Settings(BaseSettings):
         case_sensitive = True
 
 # Create global settings instance
-settings = Settings()
+try:
+    settings = Settings()
+except Exception as e:
+    print(f"Error loading settings: {e}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Looking for .env at: {env_path}")
+    print(f"TENDERLY_TOKEN in env: {'TENDERLY_TOKEN' in os.environ}")
+    raise
 
 # Validation functions
 def validate_api_keys():
