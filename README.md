@@ -96,8 +96,8 @@ Web3 Guardian is a comprehensive security suite for Web3 that combines browser e
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/web3-guardian.git
-   cd web3-guardian
+   git clone https://github.com/0x-Professor/web3-Guardian.git
+   cd web3-Guardian
    ```
 
 2. **Set up the backend**
