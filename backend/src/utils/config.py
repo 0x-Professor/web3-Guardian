@@ -44,7 +44,13 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "")
     POSTGRES_DB: str = os.getenv("POSTGRES_DB", "web3guardian")
     POSTGRES_PORT: str = os.getenv("POSTGRES_PORT", "5432")
-    DATABASE_URL: str = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_SERVER}:{POSTGRES_PORT}/{POSTGRES_DB}"
+    
+    # Format database URL for asyncpg
+    _db_user_pass = f"{POSTGRES_USER}:{POSTGRES_PASSWORD}@" if POSTGRES_PASSWORD else f"{POSTGRES_USER}@"
+    DATABASE_URL: str = f"postgresql+asyncpg://{_db_user_pass}{POSTGRES_SERVER}:{POSTGRES_PORT}/{POSTGRES_DB}"
+    
+    # Sync database URL for Alembic migrations
+    SYNC_DATABASE_URL: str = f"postgresql://{_db_user_pass}{POSTGRES_SERVER}:{POSTGRES_PORT}/{POSTGRES_DB}"
     
     # Redis settings for caching
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
