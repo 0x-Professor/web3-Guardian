@@ -4,11 +4,12 @@ uvicorn[standard]>=0.24.0,<1.0.0
 python-multipart>=0.0.6,<1.0.0
 pydantic>=2.5.0,<3.0.0
 python-dotenv>=1.0.0,<2.0.0
+setuptools>=68.0.0  # Required for pkg_resources
 
 # Web3 and blockchain dependencies
-web3>=6.12.0,<7.0.0
-eth-account>=0.9.0,<1.0.0
-eth-utils>=2.3.0,<3.0.0
+web3>=6.12.0,<7.0.0; python_version < '3.13'
+eth-account>=0.9.0,<1.0.0; python_version < '3.13'
+eth-utils>=2.3.0,<3.0.0; python_version < '3.13'
 requests>=2.31.0,<3.0.0
 
 # Google Gemini AI
@@ -31,9 +32,10 @@ httpx==0.25.2
 aiohttp==3.9.1
 
 # Security analysis tools
-slither-analyzer>=0.10.0,<1.0.0
-mythril>=0.23.28,<1.0.0
-manticore>=0.3.8,<1.0.0
+slither-analyzer>=0.10.0,<1.0.0; python_version < '3.13'
+mythril>=0.23.28,<1.0.0; python_version < '3.13'
+# Manticore is not compatible with Python 3.13 yet
+# manticore>=0.3.8,<1.0.0
 
 # Tenderly SDK
 tenderly-sdk>=0.7.0,<1.0.0
@@ -43,8 +45,8 @@ bandit==1.7.5
 safety==2.3.5
 
 # Smart contract analysis
-eth-brownie>=1.20.3,<2.0.0
-web3-tenderly>=0.1.4,<1.0.0
+eth-brownie>=1.20.3,<2.0.0; python_version < '3.13'
+web3-tenderly>=0.1.4,<1.0.0; python_version < '3.13'
 
 # Data processing and analysis
 pandas>=2.0.0,<3.0.0
