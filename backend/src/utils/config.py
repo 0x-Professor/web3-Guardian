@@ -38,12 +38,17 @@ class Settings(BaseSettings):
         "chrome-extension://*"
     ]
     
-    # Database settings (optional)
-    DATABASE_URL: Optional[str] = None
+    # Database settings (PostgreSQL)
+    POSTGRES_SERVER: str = os.getenv("POSTGRES_SERVER", "localhost")
+    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "")
+    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "web3guardian")
+    POSTGRES_PORT: str = os.getenv("POSTGRES_PORT", "5432")
+    DATABASE_URL: str = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_SERVER}:{POSTGRES_PORT}/{POSTGRES_DB}"
     
     # Redis settings for caching
-    REDIS_URL: str = "redis://localhost:6379"
-    CACHE_TTL: int = 3600  # 1 hour
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
+    CACHE_TTL: int = int(os.getenv("CACHE_TTL", "3600"))  # 1 hour
     
     # Web3 settings
     WEB3_PROVIDER_URL: str = "https://mainnet.infura.io/v3/your-project-id"
