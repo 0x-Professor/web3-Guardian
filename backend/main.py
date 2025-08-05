@@ -176,7 +176,7 @@ async def fetch_contract_details(contract_address: str, network: str) -> Dict[st
 
 
 async def perform_static_analysis(contract_address: str, network: str) -> Dict[str, Any]:
-    """Perform static analysis on a smart contract.
+    """Perform static analysis on a smart contract using RAG pipeline.
     
     Args:
         contract_address: The address of the smart contract
@@ -188,94 +188,73 @@ async def perform_static_analysis(contract_address: str, network: str) -> Dict[s
     logger.info(f"Performing static analysis on {contract_address} on {network}")
     
     try:
-        # Fetch contract details first
         contract_details = await fetch_contract_details(contract_address, network)
-        
-        # Initialize results
         analysis_results = {
             "vulnerabilities": [],
             "optimizations": [],
             "security_score": 0.0,
             "warnings": [],
             "is_verified": contract_details["is_verified"],
-            "contract_type": contract_details["metadata"].get("contract_name", "Unknown"),
-            "compiler_version": contract_details["metadata"].get("compiler_version", "Unknown"),
+            "contract_type": contract_details.get("contract_name", "Unknown"),
+            "compiler_version": contract_details.get("compiler_version", "Unknown"),
             "timestamp": datetime.utcnow().isoformat()
         }
-        
-        # Skip static analysis if contract is not verified
+
         if not contract_details["is_verified"]:
-            analysis_results["warnings"].append(
-                "Contract source code is not verified. Static analysis is limited."
-            )
+            analysis_results["warnings"].append("Contract source code is not verified. Static analysis is limited.")
             return analysis_results
-        
-        # Basic static analysis checks
-        source_code = contract_details.get("source", {})
+
+        # Use RAG pipeline for enhanced analysis
+        source_code = contract_details.get("source", "")
         if source_code:
-            # Convert source code to string for basic pattern matching
-            source_text = json.dumps(source_code).lower();
-            
-            # Check for selfdestruct
-            if 'selfdestruct' in source_text:
-                analysis_results["vulnerabilities"].append({
-                    "severity": "high",
-                    "title": "Self-Destruct Function",
-                    "description": "Contract contains selfdestruct which can lead to fund loss",
-                    "recommendation": "Avoid using selfdestruct unless absolutely necessary"
+            try:
+                rag_pipeline = await get_rag_pipeline()
+                rag_result = await rag_pipeline.analyze_contract_enhanced(contract_address, source_code, network)
+
+                analysis_results.update({
+                    "vulnerabilities": rag_result.get("vulnerabilities", []),
+                    "optimizations": rag_result.get("optimizations", []),
+                    "security_score": rag_result.get("security_score", 0.0),
+                    "source_documents": rag_result.get("source_documents", [])
                 })
-            
-            # Check for delegatecall
-            if 'delegatecall' in source_text:
-                analysis_results["vulnerabilities"].append({
-                    "severity": "high",
-                    "title": "DelegateCall Usage",
-                    "description": "Contract uses delegatecall which can be dangerous if not used carefully",
-                    "recommendation": "Review delegatecall usage and ensure proper access controls"
-                })
-            
-            # Check for reentrancy patterns
-            if any(keyword in source_text for keyword in ['.call', '.send', '.transfer']):
-                analysis_results["vulnerabilities"].append({
-                    "severity": "medium",
-                    "title": "Potential Reentrancy Risk",
-                    "description": "Contract makes external calls which could lead to reentrancy",
-                    "recommendation": "Use checks-effects-interactions pattern or reentrancy guards"
-                })
-        
-        # Update security score based on findings
-        if analysis_results["vulnerabilities"]:
-            # Deduct points based on severity (high: -2, medium: -1, low: -0.5)
-            score_deduction = sum(
-                -2 if v["severity"] == "high" else 
-                -1 if v["severity"] == "medium" else -0.5 
-                for v in analysis_results["vulnerabilities"]
-            )
-            analysis_results["security_score"] = max(0.0, 10.0 + score_deduction)
-        else:
-            analysis_results["security_score"] = 10.0
-            
+
+            except Exception as rag_error:
+                logger.error(f"RAG analysis failed, falling back to basic analysis: {str(rag_error)}")
+                # Fallback to basic analysis if RAG fails
+                source_text = str(source_code).lower()
+                
+                if 'selfdestruct' in source_text:
+                    analysis_results["vulnerabilities"].append({
+                        "title": "Self-Destruct Function",
+                        "description": "Contract contains selfdestruct which can lead to fund loss",
+                        "severity": "high",
+                        "recommendation": "Avoid using selfdestruct unless absolutely necessary"
+                    })
+                
+                if 'delegatecall' in source_text:
+                    analysis_results["vulnerabilities"].append({
+                        "title": "DelegateCall Usage", 
+                        "description": "Contract uses delegatecall which can be dangerous if not used carefully",
+                        "severity": "high",
+                        "recommendation": "Review delegatecall usage and ensure proper access controls"
+                    })
+
+                # Calculate basic security score
+                if analysis_results["vulnerabilities"]:
+                    score_deduction = sum(-2 if v["severity"] == "high" else -1 for v in analysis_results["vulnerabilities"])
+                    analysis_results["security_score"] = max(0.0, 10.0 + score_deduction)
+                else:
+                    analysis_results["security_score"] = 8.0
+
         return analysis_results
-        
+
     except Exception as e:
         logger.error(f"Static analysis failed: {str(e)}")
         return {
-        "vulnerabilities": [
-            {
-                "severity": "medium",
-                "title": "Reentrancy Vulnerability",
-                "description": "Potential reentrancy vulnerability found in withdraw function",
-                "location": "contracts/Vault.sol:42-58"
-            }
-        ],
-        "optimizations": [
-            {
-                "title": "Gas Optimization",
-                "description": "Use unchecked for arithmetic operations where overflow is not possible",
-                "location": "contracts/Vault.sol:23"
-            }
-        ],
-        "security_score": 7.5
+            "vulnerabilities": [],
+            "optimizations": [],
+            "security_score": 0.0,
+            "error": str(e)
         }
 
 async def perform_dynamic_analysis(contract_address: str, network: str) -> Dict[str, Any]:
