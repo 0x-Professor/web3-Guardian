@@ -141,15 +141,23 @@ class SmartContractRAGPipeline:
             self._load_audit_reports(),
             self._load_best_practices(),
             self._load_exploit_examples(),
-            await self._fetch_latest_security_data()
+            await self._fetch_latest_security_data(),
+            self._load_smartbugs_documents()  # Add SmartBugs documents
         ]
         
         documents = []
         
         for source_data in knowledge_sources:
             if source_data:
-                docs = self._create_documents(source_data)
-                documents.extend(docs)
+                # Handle both Dict data and Document objects
+                if isinstance(source_data, list) and source_data:
+                    if isinstance(source_data[0], Document):
+                        # Already Document objects from file loading
+                        documents.extend(source_data)
+                    else:
+                        # Dict data that needs conversion
+                        docs = self._create_documents(source_data)
+                        documents.extend(docs)
         
         if documents:
             # Split documents into chunks
@@ -167,7 +175,61 @@ class SmartContractRAGPipeline:
             self.vector_store.persist()
             
             logger.info(f"Loaded {len(split_docs)} document chunks into knowledge base")
+    
+    def _load_smartbugs_documents(self) -> List[Document]:
+        """Load SmartBugs vulnerability documents from knowledge base directory"""
+        documents = []
         
+        if not self.knowledge_base_path.exists():
+            logger.warning(f"Knowledge base directory not found: {self.knowledge_base_path}")
+            return documents
+        
+        # Find all .txt files in the knowledge base directory
+        txt_files = list(self.knowledge_base_path.glob("*.txt"))
+        
+        if not txt_files:
+            logger.info("No SmartBugs documents found in knowledge base directory")
+            return documents
+        
+        logger.info(f"Loading {len(txt_files)} SmartBugs documents from {self.knowledge_base_path}")
+        
+        for file_path in txt_files:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Extract metadata from filename
+                filename = file_path.stem
+                parts = filename.split('_')
+                
+                metadata = {
+                    "source": "smartbugs_dataset",
+                    "file_path": str(file_path),
+                    "filename": filename,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                
+                # Try to extract contract name and category from filename
+                if len(parts) >= 2:
+                    metadata["contract_name"] = parts[0]
+                    metadata["vulnerability_category"] = parts[1]
+                
+                if len(parts) >= 4:
+                    metadata["line_start"] = parts[2]
+                    metadata["line_end"] = parts[3]
+                
+                doc = Document(
+                    page_content=content,
+                    metadata=metadata
+                )
+                documents.append(doc)
+                
+            except Exception as e:
+                logger.error(f"Error loading SmartBugs document {file_path}: {e}")
+        
+        logger.info(f"Successfully loaded {len(documents)} SmartBugs documents")
+        return documents
+    
     def _load_vulnerability_patterns(self) -> List[Dict]:
         """Load common smart contract vulnerability patterns"""
         return [
