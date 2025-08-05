@@ -414,38 +414,81 @@ async function performTransactionAnalysis(txData) {
 
 async function analyzeTransactionRisk(txData) {
   const riskFactors = [];
-  let riskLevel = 'low';
+  let riskScore = 0;
   
-  // Value-based risk assessment
-  const valueWei = BigInt(txData.value || '0');
-  const valueEth = Number(valueWei) / 1e18;
-  
-  if (valueEth > 10) {
-    riskFactors.push('very_high_value');
-    riskLevel = 'high';
-  } else if (valueEth > 1) {
-    riskFactors.push('high_value');
-    riskLevel = Math.max(riskLevel, 'medium');
+  try {
+    // Check for high-value transactions
+    if (txData.value && parseFloat(txData.value) > 1) {
+      riskFactors.push({
+        type: 'high_value',
+        severity: 'medium',
+        description: 'High-value transaction detected',
+        score: 25
+      });
+      riskScore += 25;
+    }
+    
+    // Enhanced contract verification
+    if (txData.to) {
+      const contractInfo = await analyzeContract(txData.to);
+      if (contractInfo.isUnverified) {
+        riskFactors.push({
+          type: 'unverified_contract',
+          severity: 'high',
+          description: 'Interacting with unverified contract',
+          score: 40
+        });
+        riskScore += 40;
+      }
+      
+      // Check for known malicious patterns
+      if (contractInfo.hasKnownVulnerabilities) {
+        riskFactors.push({
+          type: 'vulnerable_contract',
+          severity: 'critical',
+          description: 'Contract has known vulnerabilities',
+          score: 60
+        });
+        riskScore += 60;
+      }
+    }
+    
+    // Gas price analysis
+    if (txData.gasPrice && txData.gasLimit) {
+      const estimatedCost = parseFloat(txData.gasPrice) * parseFloat(txData.gasLimit);
+      if (estimatedCost > 0.1) { // More than 0.1 ETH in gas
+        riskFactors.push({
+          type: 'high_gas_cost',
+          severity: 'medium',
+          description: 'Unusually high gas cost',
+          score: 20
+        });
+        riskScore += 20;
+      }
+    }
+    
+    // Determine overall risk level
+    let riskLevel = 'low';
+    if (riskScore >= 80) riskLevel = 'critical';
+    else if (riskScore >= 60) riskLevel = 'high';
+    else if (riskScore >= 30) riskLevel = 'medium';
+    
+    return {
+      riskLevel,
+      riskScore,
+      riskFactors,
+      timestamp: Date.now()
+    };
+    
+  } catch (error) {
+    logError('Risk analysis error:', error);
+    return {
+      riskLevel: 'unknown',
+      riskScore: 0,
+      riskFactors: [],
+      error: error.message
+    };
   }
-  
-  // Contract interaction risk
-  if (txData.data && txData.data !== '0x') {
-    riskFactors.push('contract_interaction');
-    riskLevel = Math.max(riskLevel, 'medium');
-  }
-  
-  // Known address checks (simplified - in production, use comprehensive blacklists)
-  const knownRiskyPatterns = [
-    /^0x0+$/,  // Zero address
-    /^0x1+$/,  // All ones
-  ];
-  
-  if (knownRiskyPatterns.some(pattern => pattern.test(txData.to))) {
-    riskFactors.push('suspicious_address');
-    riskLevel = 'critical';
-  }
-  
-  return { riskLevel, riskFactors };
 }
 
 async function analyzeContract(address) {
