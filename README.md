@@ -170,7 +170,19 @@ Web3 Guardian is a comprehensive security suite for Web3 that combines a browser
    python scripts/init_db.py
    ```
 
-6. **Start the server**
+6. **Set up SmartBugs knowledge base (Optional but recommended)**
+   ```bash
+   # Download SmartBugs curated dataset
+   git clone https://github.com/smartbugs/smartbugs-curated.git
+   
+   # Process dataset to populate knowledge base
+   python scripts/populate_knowledge_base.py
+   
+   # Test the integration
+   python scripts/test_smartbugs_integration.py
+   ```
+
+7. **Start the server**
    ```bash
    uvicorn main:app --reload --host 0.0.0.0 --port 8000
    ```
