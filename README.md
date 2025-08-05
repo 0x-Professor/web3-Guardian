@@ -232,7 +232,10 @@ web3-guardian/
 │   ├── scripts/           # Database and setup scripts
 │   │   ├── init_db.py    # Database initialization
 │   │   ├── check_db.py   # Database health check
-│   │   └── test_db.py    # Database testing
+│   │   ├── test_db.py    # Database testing
+│   │   ├── populate_knowledge_base.py  # SmartBugs dataset processing
+│   │   ├── test_smartbugs_integration.py  # SmartBugs integration testing
+│   │   └── README.md     # Scripts documentation
 │   ├── tests/            # Backend tests
 │   ├── alembic/          # Database migrations
 │   ├── main.py           # FastAPI application
