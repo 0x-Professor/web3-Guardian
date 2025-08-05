@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock, AsyncMock
 import json
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 
 # Add the backend directory to the Python path
 import sys
@@ -15,29 +15,42 @@ from main import app
 # Create a test client
 client = TestClient(app)
 
-# Test data
+# Test data constants
 TEST_TRANSACTION = {
     "tx_data": {
         "from": "0x1234567890123456789012345678901234567890",
         "to": "0x0987654321098765432109876543210987654321",
         "value": "1000000000000000000",  # 1 ETH
-        "data": "0xa9059cbb000000000000000000000000742d35cc6b1d3c2db0e08a1a7e5e7b3c2e8f1a2b3c4d000000000000000000000000000000000000000000000000000000000000000a",
+        "data": "0x",
         "gas": "21000",
-        "gasPrice": "20000000000",  # 20 Gwei
-        "nonce": "42",
-        "chainId": "1"
+        "gasPrice": "20000000000"  # 20 Gwei
     },
     "network": "ethereum",
     "user_address": "0x1234567890123456789012345678901234567890"
 }
 
-TEST_CONTRACT_DATA = {
-    "address": "0x742d35cc6b1d3c2db0e08a1a7e5e7b3c2e8f1a2b",
-    "bytecode": "0x608060405234801561001057600080fd5b50...",
-    "abi": [{"type": "function", "name": "transfer", "inputs": [{"name": "to", "type": "address"}, {"name": "value", "type": "uint256"}]}]
+TEST_CONTRACT_CODE = """
+pragma solidity ^0.8.0;
+contract TestContract {
+    mapping(address => uint256) public balances;
+    
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+    
+    function withdraw(uint256 amount) public {
+        require(balances[msg.sender] >= amount, "Insufficient balance");
+        balances[msg.sender] -= amount;
+        payable(msg.sender).transfer(amount);
+    }
 }
+"""
 
-class TestHealthEndpoints:
+TEST_BYTECODE = "0x608060405234801561001057600080fd5b50610150806100206000396000f3fe608060405234801561001057600080fd5b50600436106100365760003560e01c80632e1a7d4d1461003b5780638f4ffcb114610057575b600080fd5b6100556004803603810190610050919061009a565b610075565b005b61005f6100f7565b60405161006c91906100d6565b60405180910390f35b80600080335"
+
+class TestHealthAndStatus:
+    """Test health check and status endpoints."""
+    
     def test_health_check(self):
         """Test the health check endpoint."""
         response = client.get("/health")
@@ -46,54 +59,45 @@ class TestHealthEndpoints:
         assert data["status"] == "healthy"
         assert "timestamp" in data
         assert "version" in data
+        assert "uptime" in data
+
+    def test_status_endpoint(self):
+        """Test the status endpoint."""
+        response = client.get("/api/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert "system" in data
+        assert "api" in data
         assert "database" in data
-        assert "cache" in data
+        assert "redis" in data
 
     def test_metrics_endpoint(self):
         """Test the metrics endpoint."""
         response = client.get("/metrics")
         assert response.status_code == 200
-        # Prometheus metrics should be in text format
-        assert response.headers.get("content-type") == "text/plain; version=0.0.4; charset=utf-8"
+        # Metrics should be in Prometheus format
+        assert "web3guardian_" in response.text
+
 
 class TestTransactionAnalysis:
-    @patch('main.analyze_transaction_comprehensive')
+    """Test transaction analysis functionality."""
+    
+    @patch('main.analyze_transaction')
     def test_analyze_transaction_success(self, mock_analyze):
         """Test successful transaction analysis."""
         mock_result = {
-            "transaction_id": "tx_123456",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "risk_assessment": {
-                "overall_risk": "medium",
-                "risk_score": 6.5,
-                "risk_factors": [
-                    {"type": "high_value", "severity": "medium", "description": "High value transaction"},
-                    {"type": "new_contract", "severity": "low", "description": "Interacting with new contract"}
-                ]
-            },
-            "security_analysis": {
-                "vulnerabilities": [],
-                "contract_verified": True,
-                "honeypot_check": False,
-                "rug_pull_indicators": []
-            },
-            "simulation_results": {
+            "risk_level": "low",
+            "risk_score": 0.2,
+            "recommendations": ["Consider using a lower gas price"],
+            "vulnerabilities": [],
+            "simulation": {
                 "success": True,
-                "gas_used": 35000,
-                "gas_estimate": 40000,
-                "state_changes": [
-                    {"type": "balance_change", "address": "0x123...", "amount": "-1000000000000000000"},
-                    {"type": "balance_change", "address": "0x456...", "amount": "1000000000000000000"}
-                ]
+                "gas_used": 21000,
+                "gas_estimate": 21000,
+                "error": None
             },
-            "recommendations": [
-                {
-                    "type": "gas_optimization",
-                    "message": "Consider reducing gas price to save costs",
-                    "priority": "low"
-                }
-            ],
-            "ai_insights": "This appears to be a standard ERC-20 transfer with medium risk due to high value."
+            "analysis_time": 1.5,
+            "timestamp": datetime.now().isoformat()
         }
         mock_analyze.return_value = mock_result
         
@@ -101,468 +105,398 @@ class TestTransactionAnalysis:
         
         assert response.status_code == 200
         data = response.json()
-        assert data["risk_assessment"]["overall_risk"] == "medium"
-        assert data["simulation_results"]["success"] is True
-        assert len(data["recommendations"]) > 0
-        mock_analyze.assert_called_once()
+        assert data["risk_level"] == "low"
+        assert data["risk_score"] == 0.2
+        assert "recommendations" in data
+        assert "simulation" in data
+        mock_analyze.assert_called_once_with(TEST_TRANSACTION)
 
-    def test_analyze_transaction_invalid_input(self):
-        """Test transaction analysis with invalid input."""
-        # Missing required fields
-        invalid_data = {"tx_data": {}}
+    def test_analyze_transaction_invalid_address(self):
+        """Test analysis with invalid address format."""
+        invalid_tx = TEST_TRANSACTION.copy()
+        invalid_tx["tx_data"]["to"] = "invalid_address"
+        
+        response = client.post("/api/analyze", json=invalid_tx)
+        assert response.status_code == 422
+
+    def test_analyze_transaction_missing_fields(self):
+        """Test analysis with missing required fields."""
+        invalid_data = {"tx_data": {"from": "0x123"}}
         response = client.post("/api/analyze", json=invalid_data)
         assert response.status_code == 422
 
-        # Invalid address format
-        invalid_address_data = {
-            "tx_data": {
-                "from": "invalid_address",
-                "to": "0x123",
-                "value": "1000000000000000000"
+    @patch('main.analyze_transaction')
+    def test_analyze_transaction_high_risk(self, mock_analyze):
+        """Test high-risk transaction analysis."""
+        mock_result = {
+            "risk_level": "high",
+            "risk_score": 0.9,
+            "recommendations": [
+                "Do not proceed with this transaction",
+                "Contract appears to be malicious"
+            ],
+            "vulnerabilities": [
+                {
+                    "type": "reentrancy",
+                    "severity": "critical",
+                    "description": "Potential reentrancy vulnerability detected"
+                }
+            ],
+            "simulation": {
+                "success": False,
+                "gas_used": 0,
+                "error": "Transaction would revert"
             }
         }
-        response = client.post("/api/analyze", json=invalid_address_data)
-        assert response.status_code == 422
+        mock_analyze.return_value = mock_result
+        
+        response = client.post("/api/analyze", json=TEST_TRANSACTION)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["risk_level"] == "high"
+        assert data["risk_score"] == 0.9
+        assert len(data["vulnerabilities"]) > 0
 
-    @patch('main.analyze_transaction_comprehensive')
-    def test_analyze_transaction_error_handling(self, mock_analyze):
+    @patch('main.analyze_transaction')
+    def test_analyze_transaction_timeout(self, mock_analyze):
+        """Test analysis timeout handling."""
+        mock_analyze.side_effect = asyncio.TimeoutError("Analysis timeout")
+        
+        response = client.post("/api/analyze", json=TEST_TRANSACTION)
+        
+        assert response.status_code == 408
+        assert "timeout" in response.json()["detail"].lower()
+
+    @patch('main.analyze_transaction')
+    def test_analyze_transaction_error(self, mock_analyze):
         """Test error handling in transaction analysis."""
-        mock_analyze.side_effect = Exception("Analysis service unavailable")
+        mock_analyze.side_effect = Exception("Analysis failed")
         
         response = client.post("/api/analyze", json=TEST_TRANSACTION)
         
         assert response.status_code == 500
         assert "detail" in response.json()
-        assert "Analysis service unavailable" in response.json()["detail"]
 
-    @patch('main.analyze_batch_transactions')
-    def test_batch_analysis(self, mock_batch_analyze):
-        """Test batch transaction analysis."""
-        batch_data = {
-            "transactions": [TEST_TRANSACTION, TEST_TRANSACTION],
-            "options": {"include_simulation": True, "risk_threshold": "medium"}
-        }
-        
+
+class TestContractAnalysis:
+    """Test smart contract analysis functionality."""
+    
+    @patch('main.analyze_contract')
+    def test_analyze_contract_by_address(self, mock_analyze):
+        """Test contract analysis by address."""
         mock_result = {
-            "batch_id": "batch_123",
-            "total_transactions": 2,
-            "results": [
-                {"transaction_id": "tx_1", "risk_assessment": {"overall_risk": "low"}},
-                {"transaction_id": "tx_2", "risk_assessment": {"overall_risk": "medium"}}
-            ],
-            "summary": {
-                "high_risk": 0,
-                "medium_risk": 1,
-                "low_risk": 1,
-                "total_gas_estimate": 70000
-            }
+            "contract_address": "0x123...",
+            "contract_name": "TestContract",
+            "vulnerabilities": [],
+            "risk_level": "low",
+            "audit_score": 8.5,
+            "functions": [
+                {
+                    "name": "deposit",
+                    "visibility": "public",
+                    "payable": True,
+                    "risk_level": "low"
+                }
+            ]
         }
-        mock_batch_analyze.return_value = mock_result
+        mock_analyze.return_value = mock_result
         
-        response = client.post("/api/analyze/batch", json=batch_data)
+        response = client.post("/api/analyze/contract", json={
+            "address": "0x1234567890123456789012345678901234567890",
+            "network": "ethereum"
+        })
         
         assert response.status_code == 200
         data = response.json()
-        assert data["total_transactions"] == 2
-        assert len(data["results"]) == 2
-        assert "summary" in data
+        assert data["risk_level"] == "low"
+        assert "functions" in data
 
-class TestContractAnalysis:
-    @patch('main.analyze_smart_contract')
-    def test_contract_analysis(self, mock_analyze_contract):
-        """Test smart contract analysis."""
+    @patch('main.analyze_contract_code')
+    def test_analyze_contract_code(self, mock_analyze):
+        """Test contract code analysis."""
         mock_result = {
-            "contract_address": TEST_CONTRACT_DATA["address"],
-            "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
-            "security_score": 8.5,
             "vulnerabilities": [
                 {
                     "type": "reentrancy",
                     "severity": "medium",
-                    "line": 45,
-                    "description": "Potential reentrancy vulnerability",
-                    "recommendation": "Use ReentrancyGuard"
+                    "line": 15,
+                    "description": "Potential reentrancy in withdraw function"
                 }
             ],
-            "gas_analysis": {
-                "optimization_score": 7.2,
-                "expensive_operations": ["SSTORE", "CALL"],
-                "suggestions": ["Cache storage variables", "Use events for logging"]
-            },
-            "audit_findings": {
-                "total_issues": 3,
-                "critical": 0,
-                "high": 0,
-                "medium": 1,
-                "low": 2,
-                "informational": 0
-            },
-            "contract_metadata": {
-                "verified": True,
-                "compiler_version": "0.8.19",
-                "license": "MIT",
-                "proxy_contract": False
-            }
+            "risk_level": "medium",
+            "audit_score": 6.5,
+            "gas_optimization": [
+                "Use storage variables efficiently",
+                "Consider using events for logging"
+            ]
         }
-        mock_analyze_contract.return_value = mock_result
+        mock_analyze.return_value = mock_result
         
-        response = client.post("/api/contracts/analyze", json=TEST_CONTRACT_DATA)
+        response = client.post("/api/analyze/contract/code", json={
+            "source_code": TEST_CONTRACT_CODE,
+            "compiler_version": "0.8.19"
+        })
         
         assert response.status_code == 200
         data = response.json()
-        assert data["security_score"] == 8.5
-        assert len(data["vulnerabilities"]) == 1
-        assert data["audit_findings"]["total_issues"] == 3
+        assert data["risk_level"] == "medium"
+        assert len(data["vulnerabilities"]) > 0
 
-    @patch('main.get_contract_info')
-    def test_get_contract_info(self, mock_get_info):
-        """Test getting contract information."""
-        mock_info = {
-            "address": TEST_CONTRACT_DATA["address"],
-            "name": "TestToken",
-            "symbol": "TT",
-            "total_supply": "1000000000000000000000000",
-            "decimals": 18,
-            "verified": True,
-            "creation_block": 12345678,
-            "creator": "0x742d35cc6b1d3c2db0e08a1a7e5e7b3c2e8f1a2b"
+    @patch('main.analyze_bytecode')
+    def test_analyze_bytecode(self, mock_analyze):
+        """Test bytecode analysis."""
+        mock_result = {
+            "functions": ["deposit", "withdraw", "balances"],
+            "vulnerabilities": [],
+            "complexity_score": 3.2,
+            "risk_level": "low"
         }
-        mock_get_info.return_value = mock_info
+        mock_analyze.return_value = mock_result
         
-        response = client.get(f"/api/contracts/{TEST_CONTRACT_DATA['address']}")
+        response = client.post("/api/analyze/bytecode", json={
+            "bytecode": TEST_BYTECODE
+        })
         
         assert response.status_code == 200
         data = response.json()
-        assert data["name"] == "TestToken"
-        assert data["verified"] is True
+        assert "functions" in data
+        assert data["risk_level"] == "low"
+
 
 class TestSimulation:
-    @patch('main.simulate_transaction_advanced')
-    def test_simulate_transaction(self, mock_simulate):
-        """Test transaction simulation."""
+    """Test transaction simulation functionality."""
+    
+    @patch('main.simulate_transaction')
+    def test_simulate_transaction_success(self, mock_simulate):
+        """Test successful transaction simulation."""
         mock_result = {
-            "simulation_id": "sim_123456",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
             "success": True,
-            "gas_used": 35247,
-            "gas_estimate": 40000,
-            "execution_trace": [
-                {"op": "CALL", "gas": 35000, "depth": 1},
-                {"op": "SSTORE", "gas": 20000, "depth": 1},
-                {"op": "LOG1", "gas": 375, "depth": 1}
-            ],
-            "state_changes": [
+            "gas_used": 21000,
+            "gas_estimate": 21000,
+            "error": None,
+            "trace": [
                 {
-                    "type": "balance",
-                    "address": "0x1234567890123456789012345678901234567890",
-                    "before": "5000000000000000000",
-                    "after": "4000000000000000000",
-                    "diff": "-1000000000000000000"
-                },
-                {
-                    "type": "storage",
-                    "address": "0x0987654321098765432109876543210987654321",
-                    "slot": "0x0",
-                    "before": "0x0",
-                    "after": "0x1234567890123456789012345678901234567890"
+                    "action": "call",
+                    "from": "0x123...",
+                    "to": "0x456...",
+                    "value": "1000000000000000000",
+                    "gas": 21000
                 }
-            ],
-            "events": [
-                {
-                    "address": "0x0987654321098765432109876543210987654321",
-                    "topics": ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],
-                    "data": "0x000000000000000000000000000000000000000000000000000000000000000a"
-                }
-            ],
-            "revert_reason": None,
-            "performance_metrics": {
-                "execution_time": "0.125s",
-                "memory_usage": "2.4MB",
-                "cpu_usage": "15%"
-            }
-        }
-        mock_simulate.return_value = mock_result
-        
-        response = client.post("/api/simulate", json={"tx_data": TEST_TRANSACTION["tx_data"]})
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
-        assert data["gas_used"] == 35247
-        assert len(data["state_changes"]) == 2
-        assert len(data["events"]) == 1
-
-    @patch('main.simulate_transaction_advanced')
-    def test_simulate_transaction_failure(self, mock_simulate):
-        """Test failed transaction simulation."""
-        mock_result = {
-            "simulation_id": "sim_failed_123",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "success": False,
-            "gas_used": 0,
-            "revert_reason": "Insufficient balance",
-            "execution_trace": [
-                {"op": "CALL", "gas": 21000, "depth": 1, "error": "InsufficientBalance"}
             ],
             "state_changes": [],
             "events": []
         }
         mock_simulate.return_value = mock_result
         
-        response = client.post("/api/simulate", json={"tx_data": TEST_TRANSACTION["tx_data"]})
+        response = client.post("/api/simulate", json={
+            "tx_data": TEST_TRANSACTION["tx_data"],
+            "network": "ethereum"
+        })
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["gas_used"] == 21000
+        assert "trace" in data
+
+    @patch('main.simulate_transaction')
+    def test_simulate_transaction_failure(self, mock_simulate):
+        """Test failed transaction simulation."""
+        mock_result = {
+            "success": False,
+            "gas_used": 0,
+            "error": "Transaction reverted",
+            "revert_reason": "Insufficient balance",
+            "trace": []
+        }
+        mock_simulate.return_value = mock_result
+        
+        response = client.post("/api/simulate", json={
+            "tx_data": TEST_TRANSACTION["tx_data"]
+        })
         
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is False
-        assert data["revert_reason"] == "Insufficient balance"
+        assert "error" in data
+
+    @patch('src.simulation.tenderly_new.TenderlySimulator')
+    def test_simulate_with_tenderly(self, mock_tenderly):
+        """Test simulation using Tenderly."""
+        mock_simulator = MagicMock()
+        mock_simulator.simulate_transaction.return_value = {
+            "success": True,
+            "gas_used": 25000,
+            "trace": []
+        }
+        mock_tenderly.return_value = mock_simulator
+        
+        response = client.post("/api/simulate/tenderly", json={
+            "tx_data": TEST_TRANSACTION["tx_data"],
+            "network": "ethereum"
+        })
+        
+        assert response.status_code == 200
+
 
 class TestGasOptimization:
-    @patch('main.get_gas_prices')
-    def test_gas_prices(self, mock_gas_prices):
-        """Test gas price endpoint."""
-        mock_prices = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "network": "ethereum",
-            "prices": {
-                "slow": {"price": 15000000000, "time": "5-10 min"},
-                "standard": {"price": 20000000000, "time": "2-5 min"},
-                "fast": {"price": 25000000000, "time": "< 2 min"},
-                "instant": {"price": 30000000000, "time": "< 30 sec"}
-            },
-            "base_fee": 18000000000,
-            "priority_fee": {
-                "slow": 1000000000,
-                "standard": 2000000000,
-                "fast": 3000000000,
-                "instant": 5000000000
-            }
-        }
-        mock_gas_prices.return_value = mock_prices
+    """Test gas optimization functionality."""
+    
+    @patch('web3.eth.Eth.gas_price')
+    @patch('web3.eth.Eth.get_block')
+    def test_get_gas_prices(self, mock_get_block, mock_gas_price):
+        """Test gas price retrieval."""
+        mock_gas_price.return_value = 20000000000  # 20 Gwei
+        mock_block = MagicMock()
+        mock_block.baseFeePerGas = 15000000000  # 15 Gwei
+        mock_get_block.return_value = mock_block
         
         response = client.get("/api/gas/prices")
         
         assert response.status_code == 200
         data = response.json()
-        assert "prices" in data
+        assert "current" in data
         assert "base_fee" in data
-        assert data["prices"]["standard"]["price"] == 20000000000
+        assert "priority_fee" in data
+        assert "recommendations" in data
 
     @patch('main.optimize_gas')
-    def test_gas_optimization(self, mock_optimize):
-        """Test gas optimization endpoint."""
+    def test_optimize_transaction_gas(self, mock_optimize):
+        """Test gas optimization for transactions."""
         mock_result = {
             "original_gas": 50000,
-            "optimized_gas": 42000,
-            "savings": 8000,
-            "savings_percentage": 16.0,
+            "optimized_gas": 35000,
+            "savings": 15000,
+            "savings_percentage": 30.0,
             "optimizations": [
-                {
-                    "type": "batch_operations",
-                    "description": "Combine multiple storage operations",
-                    "gas_saved": 5000
-                },
-                {
-                    "type": "storage_packing",
-                    "description": "Pack struct variables efficiently",
-                    "gas_saved": 3000
-                }
-            ],
-            "estimated_cost_savings": {
-                "eth": "0.000008",
-                "usd": "0.016"
-            }
+                "Remove unnecessary storage operations",
+                "Use memory instead of storage where possible"
+            ]
         }
         mock_optimize.return_value = mock_result
         
-        response = client.post("/api/gas/optimize", json={"tx_data": TEST_TRANSACTION["tx_data"]})
+        response = client.post("/api/gas/optimize", json={
+            "tx_data": TEST_TRANSACTION["tx_data"]
+        })
         
         assert response.status_code == 200
         data = response.json()
-        assert data["original_gas"] == 50000
-        assert data["optimized_gas"] == 42000
-        assert data["savings_percentage"] == 16.0
+        assert data["savings"] > 0
+        assert data["savings_percentage"] > 0
 
-class TestWebSocketEndpoints:
-    @pytest.mark.asyncio
-    async def test_websocket_connection(self):
-        """Test WebSocket connection and message handling."""
-        with client.websocket_connect("/ws") as websocket:
-            # Send a test message
-            test_message = {
-                "type": "subscribe",
-                "channel": "transactions",
-                "user_id": "test_user_123"
-            }
-            websocket.send_json(test_message)
-            
-            # Receive acknowledgment
-            response = websocket.receive_json()
-            assert response["type"] == "subscription_confirmed"
-            assert response["channel"] == "transactions"
-
-    @pytest.mark.asyncio
-    async def test_websocket_real_time_analysis(self):
-        """Test real-time transaction analysis via WebSocket."""
-        with client.websocket_connect("/ws") as websocket:
-            # Subscribe to analysis updates
-            websocket.send_json({
-                "type": "subscribe",
-                "channel": "analysis_updates"
-            })
-            
-            # Send transaction for analysis
-            websocket.send_json({
-                "type": "analyze_transaction",
-                "data": TEST_TRANSACTION
-            })
-            
-            # Receive analysis result
-            response = websocket.receive_json()
-            assert response["type"] == "analysis_result"
-            assert "risk_assessment" in response["data"]
-
-class TestUserManagement:
-    def test_create_user_session(self):
-        """Test creating a user session."""
-        user_data = {
-            "wallet_address": "0x1234567890123456789012345678901234567890",
-            "preferences": {
-                "risk_tolerance": "medium",
-                "notifications": True,
-                "auto_approve_low_risk": False
-            }
-        }
+    def test_gas_estimation(self):
+        """Test gas estimation endpoint."""
+        response = client.post("/api/gas/estimate", json={
+            "tx_data": TEST_TRANSACTION["tx_data"]
+        })
         
-        response = client.post("/api/users/session", json=user_data)
-        
-        assert response.status_code == 201
+        assert response.status_code == 200
         data = response.json()
-        assert "session_id" in data
-        assert data["wallet_address"] == user_data["wallet_address"]
+        assert "gas_estimate" in data
+        assert "gas_price_options" in data
 
-    def test_get_user_preferences(self):
-        """Test getting user preferences."""
-        session_id = "test_session_123"
+
+class TestRealTimeUpdates:
+    """Test real-time update functionality."""
+    
+    def test_websocket_connection(self):
+        """Test WebSocket connection establishment."""
+        with client.websocket_connect("/ws/updates") as websocket:
+            data = websocket.receive_json()
+            assert data["type"] == "connection_established"
+
+    def test_websocket_transaction_updates(self):
+        """Test real-time transaction updates via WebSocket."""
+        with client.websocket_connect("/ws/transactions") as websocket:
+            # Send a transaction for monitoring
+            websocket.send_json({
+                "action": "monitor",
+                "tx_hash": "0x123..."
+            })
+            
+            # Should receive acknowledgment
+            response = websocket.receive_json()
+            assert response["type"] == "monitoring_started"
+
+
+class TestRateLimit:
+    """Test API rate limiting."""
+    
+    def test_rate_limit_exceeded(self):
+        """Test rate limit enforcement."""
+        # Make many requests quickly to trigger rate limit
+        responses = []
+        for _ in range(110):  # Exceed default limit of 100/hour
+            response = client.get("/health")
+            responses.append(response.status_code)
         
-        with patch('main.get_user_session') as mock_get_session:
-            mock_get_session.return_value = {
-                "session_id": session_id,
-                "wallet_address": "0x1234567890123456789012345678901234567890",
-                "preferences": {
-                    "risk_tolerance": "high",
-                    "notifications": True
-                }
-            }
+        # Should get rate limited
+        assert 429 in responses
+
+    def test_rate_limit_headers(self):
+        """Test rate limit headers in response."""
+        response = client.get("/health")
+        
+        assert "X-RateLimit-Limit" in response.headers
+        assert "X-RateLimit-Remaining" in response.headers
+        assert "X-RateLimit-Reset" in response.headers
+
+
+class TestAPIKeyAuth:
+    """Test API key authentication."""
+    
+    def test_missing_api_key(self):
+        """Test request without API key."""
+        response = client.post("/api/analyze", 
+                             json=TEST_TRANSACTION,
+                             headers={})
+        assert response.status_code == 401
+
+    def test_invalid_api_key(self):
+        """Test request with invalid API key."""
+        response = client.post("/api/analyze",
+                             json=TEST_TRANSACTION,
+                             headers={"X-API-Key": "invalid_key"})
+        assert response.status_code == 401
+
+    @patch('main.validate_api_key')
+    def test_valid_api_key(self, mock_validate):
+        """Test request with valid API key."""
+        mock_validate.return_value = True
+        
+        with patch('main.analyze_transaction') as mock_analyze:
+            mock_analyze.return_value = {"risk_level": "low"}
             
-            response = client.get(f"/api/users/{session_id}/preferences")
-            
+            response = client.post("/api/analyze",
+                                 json=TEST_TRANSACTION,
+                                 headers={"X-API-Key": "valid_key"})
             assert response.status_code == 200
-            data = response.json()
-            assert data["risk_tolerance"] == "high"
 
-class TestAnalyticsAndReporting:
-    @patch('main.get_analytics_dashboard')
-    def test_analytics_dashboard(self, mock_dashboard):
-        """Test analytics dashboard endpoint."""
-        mock_data = {
-            "period": "24h",
-            "total_transactions": 1250,
-            "risk_distribution": {
-                "low": 950,
-                "medium": 250,
-                "high": 50
-            },
-            "top_risks": [
-                {"type": "high_value", "count": 45},
-                {"type": "new_contract", "count": 23},
-                {"type": "unusual_pattern", "count": 12}
-            ],
-            "gas_savings": {
-                "total_saved": "0.125 ETH",
-                "average_per_tx": "0.0001 ETH"
-            },
-            "performance_metrics": {
-                "avg_analysis_time": "1.2s",
-                "success_rate": "99.8%"
-            }
-        }
-        mock_dashboard.return_value = mock_data
-        
-        response = client.get("/api/analytics/dashboard")
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["total_transactions"] == 1250
-        assert "risk_distribution" in data
-        assert "performance_metrics" in data
-
-    @patch('main.generate_security_report')
-    def test_security_report(self, mock_report):
-        """Test security report generation."""
-        mock_report_data = {
-            "report_id": "report_123456",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "period": {"start": "2025-07-01", "end": "2025-08-01"},
-            "summary": {
-                "total_transactions_analyzed": 5000,
-                "threats_detected": 25,
-                "threats_prevented": 23,
-                "false_positives": 2
-            },
-            "threat_breakdown": {
-                "malicious_contracts": 8,
-                "phishing_attempts": 7,
-                "rug_pulls": 5,
-                "honeypots": 3,
-                "other": 2
-            },
-            "recommendations": [
-                "Increase monitoring for new contract interactions",
-                "Implement additional checks for high-value transactions"
-            ]
-        }
-        mock_report.return_value = mock_report_data
-        
-        response = client.get("/api/reports/security?period=30d")
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["summary"]["total_transactions_analyzed"] == 5000
-        assert len(data["recommendations"]) == 2
 
 class TestErrorHandling:
-    def test_404_error(self):
-        """Test 404 error handling."""
-        response = client.get("/api/nonexistent-endpoint")
-        assert response.status_code == 404
-        assert "detail" in response.json()
+    """Test error handling and edge cases."""
+    
+    def test_malformed_json(self):
+        """Test handling of malformed JSON."""
+        response = client.post("/api/analyze",
+                             data="invalid json",
+                             headers={"Content-Type": "application/json"})
+        assert response.status_code == 422
 
-    def test_rate_limiting(self):
-        """Test rate limiting functionality."""
-        # Make multiple requests rapidly
-        responses = []
-        for i in range(5):
-            response = client.get("/health")
-            responses.append(response)
+    def test_network_not_supported(self):
+        """Test unsupported network handling."""
+        invalid_tx = TEST_TRANSACTION.copy()
+        invalid_tx["network"] = "unsupported_network"
         
-        # All should succeed under normal rate limits
-        assert all(r.status_code == 200 for r in responses)
+        response = client.post("/api/analyze", json=invalid_tx)
+        assert response.status_code == 400
 
-    @patch('main.analyze_transaction_comprehensive')
-    def test_timeout_handling(self, mock_analyze):
-        """Test timeout handling for long-running operations."""
-        import asyncio
-        
-        async def slow_analysis(*args, **kwargs):
-            await asyncio.sleep(10)  # Simulate slow operation
-            return {"risk_level": "low"}
-        
-        mock_analyze.side_effect = slow_analysis
-        
-        response = client.post("/api/analyze", json=TEST_TRANSACTION, timeout=5)
-        
-        # Should handle timeout gracefully
-        assert response.status_code in [408, 504]  # Timeout or Gateway Timeout
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    def test_internal_server_error(self):
+        """Test internal server error handling."""
+        with patch('main.analyze_transaction') as mock_analyze:
+            mock_analyze.side_effect = Exception("Internal error")
+            
+            response = client.post("/api/analyze", json=TEST_TRANSACTION)
+            assert response.status_code == 500
+            assert "detail" in response.json()
