@@ -6,6 +6,7 @@ Integrates Gemini AI, vector databases, and comprehensive security analysis
 import asyncio
 import json
 import logging
+import os
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 import hashlib
@@ -20,6 +21,9 @@ from langchain.chains import RetrievalQA
 from langchain_google_genai import GoogleGenerativeAI, ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 from langchain.schema import BaseRetriever
+from langchain_community.vectorstores import Chroma as CommunityChroma
+from langchain_community.embeddings import HuggingFaceEmbeddings as CommunityHuggingFaceEmbeddings
+from langchain_community.document_loaders import TextLoader
 
 # Google Gemini
 import google.generativeai as genai
