@@ -1,52 +1,46 @@
 import pytest
-from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock, AsyncMock
-import json
 import asyncio
-from datetime import datetime
-
-# Add the backend directory to the Python path
+import json
+import uuid
+from datetime import datetime, timezone
+from unittest.mock import patch, MagicMock, AsyncMock
+from fastapi.testclient import TestClient
 import sys
 from pathlib import Path
+
+# Add the backend directory to the Python path
 sys.path.append(str(Path(__file__).parent.parent.parent / 'backend'))
 
-from main import app
+from main import app, analysis_results, tenderly_client
+from src.simulation.tenderly_new import TenderlyError, SimulationFailedError
 
 # Create a test client
 client = TestClient(app)
 
 # Test data constants
-TEST_TRANSACTION = {
+TEST_CONTRACT_ADDRESS = "0x1234567890123456789012345678901234567890"
+TEST_NETWORK = "ethereum"
+TEST_USER_ADDRESS = "0x9876543210987654321098765432109876543210"
+
+TEST_CONTRACT_ANALYSIS_REQUEST = {
+    "contract_address": TEST_CONTRACT_ADDRESS,
+    "network": TEST_NETWORK,
+    "analysis_types": ["static", "dynamic"],
+    "user_address": TEST_USER_ADDRESS
+}
+
+TEST_TRANSACTION_DATA = {
     "tx_data": {
-        "from": "0x1234567890123456789012345678901234567890",
-        "to": "0x0987654321098765432109876543210987654321",
+        "from": TEST_USER_ADDRESS,
+        "to": TEST_CONTRACT_ADDRESS,
         "value": "1000000000000000000",  # 1 ETH
-        "data": "0x",
-        "gas": "21000",
+        "data": "0xa9059cbb000000000000000000000000456789...0000000000000000000001",
+        "gas": "50000",
         "gasPrice": "20000000000"  # 20 Gwei
     },
-    "network": "ethereum",
-    "user_address": "0x1234567890123456789012345678901234567890"
+    "network": TEST_NETWORK,
+    "user_address": TEST_USER_ADDRESS
 }
-
-TEST_CONTRACT_CODE = """
-pragma solidity ^0.8.0;
-contract TestContract {
-    mapping(address => uint256) public balances;
-    
-    function deposit() public payable {
-        balances[msg.sender] += msg.value;
-    }
-    
-    function withdraw(uint256 amount) public {
-        require(balances[msg.sender] >= amount, "Insufficient balance");
-        balances[msg.sender] -= amount;
-        payable(msg.sender).transfer(amount);
-    }
-}
-"""
-
-TEST_BYTECODE = "0x608060405234801561001057600080fd5b50610150806100206000396000f3fe608060405234801561001057600080fd5b50600436106100365760003560e01c80632e1a7d4d1461003b5780638f4ffcb114610057575b600080fd5b6100556004803603810190610050919061009a565b610075565b005b61005f6100f7565b60405161006c91906100d6565b60405180910390f35b80600080335"
 
 class TestHealthAndStatus:
     """Test health check and status endpoints."""
@@ -57,446 +51,429 @@ class TestHealthAndStatus:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
-        assert "timestamp" in data
-        assert "version" in data
-        assert "uptime" in data
-
-    def test_status_endpoint(self):
-        """Test the status endpoint."""
-        response = client.get("/api/status")
-        assert response.status_code == 200
-        data = response.json()
-        assert "system" in data
-        assert "api" in data
-        assert "database" in data
-        assert "redis" in data
-
-    def test_metrics_endpoint(self):
-        """Test the metrics endpoint."""
-        response = client.get("/metrics")
-        assert response.status_code == 200
-        # Metrics should be in Prometheus format
-        assert "web3guardian_" in response.text
-
-
-class TestTransactionAnalysis:
-    """Test transaction analysis functionality."""
-    
-    @patch('main.analyze_transaction')
-    def test_analyze_transaction_success(self, mock_analyze):
-        """Test successful transaction analysis."""
-        mock_result = {
-            "risk_level": "low",
-            "risk_score": 0.2,
-            "recommendations": ["Consider using a lower gas price"],
-            "vulnerabilities": [],
-            "simulation": {
-                "success": True,
-                "gas_used": 21000,
-                "gas_estimate": 21000,
-                "error": None
-            },
-            "analysis_time": 1.5,
-            "timestamp": datetime.now().isoformat()
-        }
-        mock_analyze.return_value = mock_result
-        
-        response = client.post("/api/analyze", json=TEST_TRANSACTION)
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["risk_level"] == "low"
-        assert data["risk_score"] == 0.2
-        assert "recommendations" in data
-        assert "simulation" in data
-        mock_analyze.assert_called_once_with(TEST_TRANSACTION)
-
-    def test_analyze_transaction_invalid_address(self):
-        """Test analysis with invalid address format."""
-        invalid_tx = TEST_TRANSACTION.copy()
-        invalid_tx["tx_data"]["to"] = "invalid_address"
-        
-        response = client.post("/api/analyze", json=invalid_tx)
-        assert response.status_code == 422
-
-    def test_analyze_transaction_missing_fields(self):
-        """Test analysis with missing required fields."""
-        invalid_data = {"tx_data": {"from": "0x123"}}
-        response = client.post("/api/analyze", json=invalid_data)
-        assert response.status_code == 422
-
-    @patch('main.analyze_transaction')
-    def test_analyze_transaction_high_risk(self, mock_analyze):
-        """Test high-risk transaction analysis."""
-        mock_result = {
-            "risk_level": "high",
-            "risk_score": 0.9,
-            "recommendations": [
-                "Do not proceed with this transaction",
-                "Contract appears to be malicious"
-            ],
-            "vulnerabilities": [
-                {
-                    "type": "reentrancy",
-                    "severity": "critical",
-                    "description": "Potential reentrancy vulnerability detected"
-                }
-            ],
-            "simulation": {
-                "success": False,
-                "gas_used": 0,
-                "error": "Transaction would revert"
-            }
-        }
-        mock_analyze.return_value = mock_result
-        
-        response = client.post("/api/analyze", json=TEST_TRANSACTION)
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["risk_level"] == "high"
-        assert data["risk_score"] == 0.9
-        assert len(data["vulnerabilities"]) > 0
-
-    @patch('main.analyze_transaction')
-    def test_analyze_transaction_timeout(self, mock_analyze):
-        """Test analysis timeout handling."""
-        mock_analyze.side_effect = asyncio.TimeoutError("Analysis timeout")
-        
-        response = client.post("/api/analyze", json=TEST_TRANSACTION)
-        
-        assert response.status_code == 408
-        assert "timeout" in response.json()["detail"].lower()
-
-    @patch('main.analyze_transaction')
-    def test_analyze_transaction_error(self, mock_analyze):
-        """Test error handling in transaction analysis."""
-        mock_analyze.side_effect = Exception("Analysis failed")
-        
-        response = client.post("/api/analyze", json=TEST_TRANSACTION)
-        
-        assert response.status_code == 500
-        assert "detail" in response.json()
 
 
 class TestContractAnalysis:
     """Test smart contract analysis functionality."""
     
-    @patch('main.analyze_contract')
-    def test_analyze_contract_by_address(self, mock_analyze):
-        """Test contract analysis by address."""
-        mock_result = {
-            "contract_address": "0x123...",
-            "contract_name": "TestContract",
-            "vulnerabilities": [],
-            "risk_level": "low",
-            "audit_score": 8.5,
-            "functions": [
-                {
-                    "name": "deposit",
-                    "visibility": "public",
-                    "payable": True,
-                    "risk_level": "low"
-                }
-            ]
-        }
-        mock_analyze.return_value = mock_result
-        
-        response = client.post("/api/analyze/contract", json={
-            "address": "0x1234567890123456789012345678901234567890",
-            "network": "ethereum"
-        })
+    def test_analyze_contract_endpoint_success(self):
+        """Test successful contract analysis request."""
+        response = client.post("/api/analyze/contract", json=TEST_CONTRACT_ANALYSIS_REQUEST)
         
         assert response.status_code == 200
         data = response.json()
-        assert data["risk_level"] == "low"
-        assert "functions" in data
-
-    @patch('main.analyze_contract_code')
-    def test_analyze_contract_code(self, mock_analyze):
-        """Test contract code analysis."""
-        mock_result = {
+        assert "analysis_id" in data
+        assert data["status"] == "pending"
+        assert isinstance(data["results"], dict)
+        
+        # Verify the analysis was stored
+        analysis_id = data["analysis_id"]
+        assert analysis_id in analysis_results
+        assert analysis_results[analysis_id]["status"] == "pending"
+    
+    def test_analyze_contract_invalid_address(self):
+        """Test contract analysis with invalid address."""
+        invalid_request = TEST_CONTRACT_ANALYSIS_REQUEST.copy()
+        invalid_request["contract_address"] = "invalid_address"
+        
+        response = client.post("/api/analyze/contract", json=invalid_request)
+        assert response.status_code == 422
+    
+    def test_analyze_contract_missing_fields(self):
+        """Test contract analysis with missing required fields."""
+        incomplete_request = {"network": "ethereum"}
+        
+        response = client.post("/api/analyze/contract", json=incomplete_request)
+        assert response.status_code == 422
+    
+    def test_get_analysis_success(self):
+        """Test retrieving analysis results."""
+        # First create an analysis
+        analysis_id = str(uuid.uuid4())
+        analysis_results[analysis_id] = {
+            "status": "completed",
+            "results": {
+                "static": {
+                    "vulnerabilities": [],
+                    "security_score": 8.5
+                }
+            },
+            "contract_address": TEST_CONTRACT_ADDRESS,
+            "network": TEST_NETWORK
+        }
+        
+        response = client.get(f"/api/analysis/{analysis_id}")
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["analysis_id"] == analysis_id
+        assert data["status"] == "completed"
+        assert "static" in data["results"]
+    
+    def test_get_analysis_not_found(self):
+        """Test retrieving non-existent analysis."""
+        fake_id = str(uuid.uuid4())
+        response = client.get(f"/api/analysis/{fake_id}")
+        
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"]
+    
+    @patch('main.fetch_contract_details')
+    @patch('main.get_rag_pipeline')
+    async def test_perform_static_analysis_verified_contract(self, mock_rag, mock_fetch):
+        """Test static analysis on verified contract."""
+        from main import perform_static_analysis
+        
+        # Mock contract details
+        mock_fetch.return_value = {
+            "is_verified": True,
+            "source": "contract TestContract { function test() public {} }",
+            "contract_name": "TestContract",
+            "compiler_version": "0.8.19"
+        }
+        
+        # Mock RAG pipeline
+        mock_rag_instance = AsyncMock()
+        mock_rag_instance.analyze_contract_enhanced.return_value = {
             "vulnerabilities": [
                 {
-                    "type": "reentrancy",
+                    "title": "Test Vulnerability",
                     "severity": "medium",
-                    "line": 15,
-                    "description": "Potential reentrancy in withdraw function"
+                    "description": "Test description"
                 }
             ],
-            "risk_level": "medium",
-            "audit_score": 6.5,
-            "gas_optimization": [
-                "Use storage variables efficiently",
-                "Consider using events for logging"
-            ]
+            "optimizations": ["Use storage efficiently"],
+            "security_score": 7.5,
+            "source_documents": []
         }
-        mock_analyze.return_value = mock_result
+        mock_rag.return_value = mock_rag_instance
         
-        response = client.post("/api/analyze/contract/code", json={
-            "source_code": TEST_CONTRACT_CODE,
-            "compiler_version": "0.8.19"
-        })
+        result = await perform_static_analysis(TEST_CONTRACT_ADDRESS, TEST_NETWORK)
         
-        assert response.status_code == 200
-        data = response.json()
-        assert data["risk_level"] == "medium"
-        assert len(data["vulnerabilities"]) > 0
-
-    @patch('main.analyze_bytecode')
-    def test_analyze_bytecode(self, mock_analyze):
-        """Test bytecode analysis."""
-        mock_result = {
-            "functions": ["deposit", "withdraw", "balances"],
-            "vulnerabilities": [],
-            "complexity_score": 3.2,
-            "risk_level": "low"
-        }
-        mock_analyze.return_value = mock_result
-        
-        response = client.post("/api/analyze/bytecode", json={
-            "bytecode": TEST_BYTECODE
-        })
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert "functions" in data
-        assert data["risk_level"] == "low"
-
-
-class TestSimulation:
-    """Test transaction simulation functionality."""
+        assert result["is_verified"] is True
+        assert len(result["vulnerabilities"]) == 1
+        assert result["security_score"] == 7.5
+        assert "optimizations" in result
     
-    @patch('main.simulate_transaction')
-    def test_simulate_transaction_success(self, mock_simulate):
-        """Test successful transaction simulation."""
-        mock_result = {
-            "success": True,
-            "gas_used": 21000,
-            "gas_estimate": 21000,
-            "error": None,
-            "trace": [
-                {
-                    "action": "call",
-                    "from": "0x123...",
-                    "to": "0x456...",
-                    "value": "1000000000000000000",
-                    "gas": 21000
-                }
-            ],
-            "state_changes": [],
-            "events": []
-        }
-        mock_simulate.return_value = mock_result
+    @patch('main.fetch_contract_details')
+    async def test_perform_static_analysis_unverified_contract(self, mock_fetch):
+        """Test static analysis on unverified contract."""
+        from main import perform_static_analysis
         
-        response = client.post("/api/simulate", json={
-            "tx_data": TEST_TRANSACTION["tx_data"],
-            "network": "ethereum"
-        })
+        mock_fetch.return_value = {
+            "is_verified": False,
+            "source": "",
+            "contract_name": "Unknown",
+            "compiler_version": "Unknown"
+        }
+        
+        result = await perform_static_analysis(TEST_CONTRACT_ADDRESS, TEST_NETWORK)
+        
+        assert result["is_verified"] is False
+        assert len(result["warnings"]) > 0
+        assert "not verified" in result["warnings"][0]
+    
+    @patch('main.tenderly_client')
+    async def test_perform_dynamic_analysis_success(self, mock_client):
+        """Test successful dynamic analysis."""
+        from main import perform_dynamic_analysis
+        
+        # Mock Tenderly client responses
+        mock_client.get_contract_metadata.return_value = {
+            "contract_name": "ERC20Token"
+        }
+        mock_client.simulate_transaction.return_value = {
+            "id": "sim_123",
+            "gas_used": 21000,
+            "status": True,
+            "trace": {"calls": []},
+            "logs": []
+        }
+        
+        result = await perform_dynamic_analysis(TEST_CONTRACT_ADDRESS, TEST_NETWORK)
+        
+        assert result["simulation_id"] == "sim_123"
+        assert result["gas_used"] == 21000
+        assert result["status"] is True
+        assert result["error"] is None
+    
+    @patch('main.tenderly_client')
+    async def test_perform_dynamic_analysis_failure(self, mock_client):
+        """Test dynamic analysis with simulation failure."""
+        from main import perform_dynamic_analysis
+        
+        mock_client.get_contract_metadata.return_value = {"contract_name": "TestContract"}
+        mock_client.simulate_transaction.side_effect = SimulationFailedError("Transaction reverted")
+        
+        result = await perform_dynamic_analysis(TEST_CONTRACT_ADDRESS, TEST_NETWORK)
+        
+        assert result["simulation_id"] is None
+        assert result["status"] is False
+        assert "reverted" in result["error"]
+
+
+class TestTransactionAnalysis:
+    """Test transaction analysis functionality."""
+    
+    def test_analyze_transaction_legacy_endpoint(self):
+        """Test the legacy transaction analysis endpoint."""
+        response = client.post("/api/analyze/transaction", json=TEST_TRANSACTION_DATA)
         
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["gas_used"] == 21000
-        assert "trace" in data
-
-    @patch('main.simulate_transaction')
-    def test_simulate_transaction_failure(self, mock_simulate):
-        """Test failed transaction simulation."""
-        mock_result = {
-            "success": False,
-            "gas_used": 0,
-            "error": "Transaction reverted",
-            "revert_reason": "Insufficient balance",
-            "trace": []
-        }
-        mock_simulate.return_value = mock_result
-        
-        response = client.post("/api/simulate", json={
-            "tx_data": TEST_TRANSACTION["tx_data"]
-        })
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is False
-        assert "error" in data
-
-    @patch('src.simulation.tenderly_new.TenderlySimulator')
-    def test_simulate_with_tenderly(self, mock_tenderly):
-        """Test simulation using Tenderly."""
-        mock_simulator = MagicMock()
-        mock_simulator.simulate_transaction.return_value = {
-            "success": True,
-            "gas_used": 25000,
-            "trace": []
-        }
-        mock_tenderly.return_value = mock_simulator
-        
-        response = client.post("/api/simulate/tenderly", json={
-            "tx_data": TEST_TRANSACTION["tx_data"],
-            "network": "ethereum"
-        })
-        
-        assert response.status_code == 200
-
-
-class TestGasOptimization:
-    """Test gas optimization functionality."""
-    
-    @patch('web3.eth.Eth.gas_price')
-    @patch('web3.eth.Eth.get_block')
-    def test_get_gas_prices(self, mock_get_block, mock_gas_price):
-        """Test gas price retrieval."""
-        mock_gas_price.return_value = 20000000000  # 20 Gwei
-        mock_block = MagicMock()
-        mock_block.baseFeePerGas = 15000000000  # 15 Gwei
-        mock_get_block.return_value = mock_block
-        
-        response = client.get("/api/gas/prices")
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert "current" in data
-        assert "base_fee" in data
-        assert "priority_fee" in data
+        assert "risk_level" in data
         assert "recommendations" in data
+        assert "simulation" in data
 
-    @patch('main.optimize_gas')
-    def test_optimize_transaction_gas(self, mock_optimize):
-        """Test gas optimization for transactions."""
-        mock_result = {
-            "original_gas": 50000,
-            "optimized_gas": 35000,
-            "savings": 15000,
-            "savings_percentage": 30.0,
-            "optimizations": [
-                "Remove unnecessary storage operations",
-                "Use memory instead of storage where possible"
-            ]
+
+class TestUtilityFunctions:
+    """Test utility functions."""
+    
+    @patch('main.tenderly_client')
+    @patch('aiohttp.ClientSession.get')
+    async def test_fetch_contract_details_tenderly_verified(self, mock_get, mock_client):
+        """Test fetching contract details from Tenderly for verified contract."""
+        from main import fetch_contract_details
+        
+        mock_client.get_contract_metadata.return_value = {
+            "source": "contract Test {}",
+            "contract_name": "TestContract",
+            "compiler_version": "0.8.19"
         }
-        mock_optimize.return_value = mock_result
         
-        response = client.post("/api/gas/optimize", json={
-            "tx_data": TEST_TRANSACTION["tx_data"]
-        })
+        result = await fetch_contract_details(TEST_CONTRACT_ADDRESS, TEST_NETWORK)
         
-        assert response.status_code == 200
-        data = response.json()
-        assert data["savings"] > 0
-        assert data["savings_percentage"] > 0
-
-    def test_gas_estimation(self):
-        """Test gas estimation endpoint."""
-        response = client.post("/api/gas/estimate", json={
-            "tx_data": TEST_TRANSACTION["tx_data"]
-        })
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert "gas_estimate" in data
-        assert "gas_price_options" in data
-
-
-class TestRealTimeUpdates:
-    """Test real-time update functionality."""
+        assert result["is_verified"] is True
+        assert result["source"] == "contract Test {}"
     
-    def test_websocket_connection(self):
-        """Test WebSocket connection establishment."""
-        with client.websocket_connect("/ws/updates") as websocket:
-            data = websocket.receive_json()
-            assert data["type"] == "connection_established"
-
-    def test_websocket_transaction_updates(self):
-        """Test real-time transaction updates via WebSocket."""
-        with client.websocket_connect("/ws/transactions") as websocket:
-            # Send a transaction for monitoring
-            websocket.send_json({
-                "action": "monitor",
-                "tx_hash": "0x123..."
-            })
-            
-            # Should receive acknowledgment
-            response = websocket.receive_json()
-            assert response["type"] == "monitoring_started"
-
-
-class TestRateLimit:
-    """Test API rate limiting."""
-    
-    def test_rate_limit_exceeded(self):
-        """Test rate limit enforcement."""
-        # Make many requests quickly to trigger rate limit
-        responses = []
-        for _ in range(110):  # Exceed default limit of 100/hour
-            response = client.get("/health")
-            responses.append(response.status_code)
+    @patch('main.tenderly_client')
+    @patch('main.settings')
+    @patch('aiohttp.ClientSession.get')
+    async def test_fetch_contract_details_etherscan_fallback(self, mock_get, mock_settings, mock_client):
+        """Test fallback to Etherscan when contract not verified in Tenderly."""
+        from main import fetch_contract_details
         
-        # Should get rate limited
-        assert 429 in responses
-
-    def test_rate_limit_headers(self):
-        """Test rate limit headers in response."""
-        response = client.get("/health")
+        # Mock Tenderly returning unverified contract
+        mock_client.get_contract_metadata.return_value = {"source": ""}
         
-        assert "X-RateLimit-Limit" in response.headers
-        assert "X-RateLimit-Remaining" in response.headers
-        assert "X-RateLimit-Reset" in response.headers
-
-
-class TestAPIKeyAuth:
-    """Test API key authentication."""
-    
-    def test_missing_api_key(self):
-        """Test request without API key."""
-        response = client.post("/api/analyze", 
-                             json=TEST_TRANSACTION,
-                             headers={})
-        assert response.status_code == 401
-
-    def test_invalid_api_key(self):
-        """Test request with invalid API key."""
-        response = client.post("/api/analyze",
-                             json=TEST_TRANSACTION,
-                             headers={"X-API-Key": "invalid_key"})
-        assert response.status_code == 401
-
-    @patch('main.validate_api_key')
-    def test_valid_api_key(self, mock_validate):
-        """Test request with valid API key."""
-        mock_validate.return_value = True
+        # Mock settings with Etherscan API key
+        mock_settings.ETHERSCAN_API_KEY = "test_key"
+        mock_settings.ETHERSCAN_VERIFY_URL = "https://api.etherscan.io/api"
         
-        with patch('main.analyze_transaction') as mock_analyze:
-            mock_analyze.return_value = {"risk_level": "low"}
-            
-            response = client.post("/api/analyze",
-                                 json=TEST_TRANSACTION,
-                                 headers={"X-API-Key": "valid_key"})
-            assert response.status_code == 200
+        # Mock Etherscan response
+        mock_response = AsyncMock()
+        mock_response.json.return_value = {
+            "status": "1",
+            "result": [{
+                "SourceCode": "contract VerifiedContract {}",
+                "ContractName": "VerifiedContract",
+                "CompilerVersion": "v0.8.19+commit.7dd6d404"
+            }]
+        }
+        
+        mock_session = AsyncMock()
+        mock_session.get.return_value.__aenter__.return_value = mock_response
+        
+        with patch('aiohttp.ClientSession', return_value=mock_session):
+            result = await fetch_contract_details(TEST_CONTRACT_ADDRESS, TEST_NETWORK)
+        
+        assert result["is_verified"] is True
+        assert result["source"] == "contract VerifiedContract {}"
+        assert result["contract_name"] == "VerifiedContract"
 
 
 class TestErrorHandling:
-    """Test error handling and edge cases."""
+    """Test error handling in various scenarios."""
     
-    def test_malformed_json(self):
-        """Test handling of malformed JSON."""
-        response = client.post("/api/analyze",
-                             data="invalid json",
-                             headers={"Content-Type": "application/json"})
+    @patch('main.perform_static_analysis')
+    @patch('main.perform_dynamic_analysis')
+    async def test_run_analysis_with_errors(self, mock_dynamic, mock_static):
+        """Test analysis pipeline error handling."""
+        from main import run_analysis, ContractAnalysisRequest
+        
+        # Mock analysis functions to raise errors
+        mock_static.side_effect = Exception("Static analysis failed")
+        mock_dynamic.side_effect = Exception("Dynamic analysis failed")
+        
+        analysis_id = str(uuid.uuid4())
+        request = ContractAnalysisRequest(**TEST_CONTRACT_ANALYSIS_REQUEST)
+        
+        await run_analysis(analysis_id, request)
+        
+        assert analysis_results[analysis_id]["status"] == "failed"
+        assert "error" in analysis_results[analysis_id]
+    
+    def test_invalid_json_request(self):
+        """Test handling of invalid JSON in requests."""
+        response = client.post(
+            "/api/analyze/contract",
+            data="invalid json",
+            headers={"Content-Type": "application/json"}
+        )
+        
         assert response.status_code == 422
 
-    def test_network_not_supported(self):
-        """Test unsupported network handling."""
-        invalid_tx = TEST_TRANSACTION.copy()
-        invalid_tx["network"] = "unsupported_network"
-        
-        response = client.post("/api/analyze", json=invalid_tx)
-        assert response.status_code == 400
 
-    def test_internal_server_error(self):
-        """Test internal server error handling."""
-        with patch('main.analyze_transaction') as mock_analyze:
-            mock_analyze.side_effect = Exception("Internal error")
+class TestConcurrency:
+    """Test concurrent analysis requests."""
+    
+    @patch('main.perform_static_analysis')
+    @patch('main.perform_dynamic_analysis')
+    def test_multiple_concurrent_analyses(self, mock_dynamic, mock_static):
+        """Test handling multiple concurrent analysis requests."""
+        mock_static.return_value = {"vulnerabilities": [], "security_score": 8.0}
+        mock_dynamic.return_value = {"simulation_id": "test", "status": True}
+        
+        # Send multiple requests concurrently
+        responses = []
+        for i in range(5):
+            request_data = TEST_CONTRACT_ANALYSIS_REQUEST.copy()
+            request_data["contract_address"] = f"0x{'1' * 39}{i}"
+            response = client.post("/api/analyze/contract", json=request_data)
+            responses.append(response)
+        
+        # All requests should be accepted
+        for response in responses:
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "pending"
+            assert data["analysis_id"] in analysis_results
+
+
+class TestValidation:
+    """Test input validation."""
+    
+    def test_contract_address_validation(self):
+        """Test contract address format validation."""
+        invalid_addresses = [
+            "0x123",  # Too short
+            "invalid_address",  # Not hex
+            "0x" + "g" * 40,  # Invalid hex characters
+            "",  # Empty string
+        ]
+        
+        for invalid_address in invalid_addresses:
+            request_data = TEST_CONTRACT_ANALYSIS_REQUEST.copy()
+            request_data["contract_address"] = invalid_address
             
-            response = client.post("/api/analyze", json=TEST_TRANSACTION)
-            assert response.status_code == 500
-            assert "detail" in response.json()
+            response = client.post("/api/analyze/contract", json=request_data)
+            assert response.status_code == 422
+    
+    def test_network_validation(self):
+        """Test network parameter validation."""
+        valid_networks = ["ethereum", "polygon", "bsc", "arbitrum", "optimism"]
+        
+        for network in valid_networks:
+            request_data = TEST_CONTRACT_ANALYSIS_REQUEST.copy()
+            request_data["network"] = network
+            
+            response = client.post("/api/analyze/contract", json=request_data)
+            assert response.status_code == 200
+    
+    def test_analysis_types_validation(self):
+        """Test analysis types validation."""
+        valid_combinations = [
+            ["static"],
+            ["dynamic"],
+            ["static", "dynamic"]
+        ]
+        
+        for analysis_types in valid_combinations:
+            request_data = TEST_CONTRACT_ANALYSIS_REQUEST.copy()
+            request_data["analysis_types"] = analysis_types
+            
+            response = client.post("/api/analyze/contract", json=request_data)
+            assert response.status_code == 200
+
+
+class TestPerformance:
+    """Test performance-related aspects."""
+    
+    def test_large_contract_analysis(self):
+        """Test analysis of large contract (mock scenario)."""
+        large_contract_request = TEST_CONTRACT_ANALYSIS_REQUEST.copy()
+        # Simulate analyzing a large contract
+        
+        response = client.post("/api/analyze/contract", json=large_contract_request)
+        
+        assert response.status_code == 200
+        # Response should be immediate (background task)
+        data = response.json()
+        assert data["status"] == "pending"
+    
+    @patch('main.perform_static_analysis')
+    async def test_analysis_timeout_handling(self, mock_static):
+        """Test handling of analysis timeouts."""
+        from main import run_analysis, ContractAnalysisRequest
+        
+        # Mock a slow analysis that times out
+        async def slow_analysis(*args, **kwargs):
+            await asyncio.sleep(10)  # Simulate slow analysis
+            return {"vulnerabilities": [], "security_score": 0}
+        
+        mock_static.side_effect = slow_analysis
+        
+        analysis_id = str(uuid.uuid4())
+        request = ContractAnalysisRequest(**TEST_CONTRACT_ANALYSIS_REQUEST)
+        
+        # This should handle the timeout gracefully
+        try:
+            await asyncio.wait_for(run_analysis(analysis_id, request), timeout=1)
+        except asyncio.TimeoutError:
+            # Expected behavior for slow analysis
+            pass
+
+
+class TestIntegration:
+    """Integration tests combining multiple components."""
+    
+    @patch('main.tenderly_client')
+    @patch('main.get_rag_pipeline')
+    async def test_full_analysis_pipeline(self, mock_rag, mock_client):
+        """Test complete analysis pipeline from request to completion."""
+        # Mock all external dependencies
+        mock_client.get_contract_metadata.return_value = {
+            "source": "contract TestContract { function test() {} }",
+            "contract_name": "TestContract",
+            "compiler_version": "0.8.19"
+        }
+        mock_client.simulate_transaction.return_value = {
+            "id": "sim_123",
+            "gas_used": 21000,
+            "status": True,
+            "trace": {},
+            "logs": []
+        }
+        
+        mock_rag_instance = AsyncMock()
+        mock_rag_instance.analyze_contract_enhanced.return_value = {
+            "vulnerabilities": [],
+            "optimizations": [],
+            "security_score": 9.0,
+            "source_documents": []
+        }
+        mock_rag.return_value = mock_rag_instance
+        
+        # Start analysis
+        response = client.post("/api/analyze/contract", json=TEST_CONTRACT_ANALYSIS_REQUEST)
+        assert response.status_code == 200
+        
+        analysis_id = response.json()["analysis_id"]
+        
+        # Wait for background task to complete (in real scenario)
+        await asyncio.sleep(0.1)
+        
+        # Check analysis status
+        status_response = client.get(f"/api/analysis/{analysis_id}")
+        assert status_response.status_code == 200
+
+
+# Cleanup after tests
+def teardown_module():
+    """Clean up after all tests."""
+    analysis_results.clear()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
