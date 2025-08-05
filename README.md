@@ -209,6 +209,67 @@ Web3 Guardian is a comprehensive security suite for Web3 that combines a browser
    - Chrome: Load unpacked extension from `extension/dist`
    - Firefox: Load temporary add-on from `extension/dist/manifest.json`
 
+## 🧠 SmartBugs Knowledge Base Integration
+
+Web3 Guardian leverages the SmartBugs curated dataset to enhance its vulnerability detection capabilities with real-world examples of smart contract vulnerabilities.
+
+### Dataset Overview
+- **143 Smart Contracts** with known vulnerabilities
+- **208 Labeled Vulnerabilities** across multiple categories
+- **Real-World Examples** from actual deployed contracts
+- **Comprehensive Coverage** of common vulnerability patterns
+
+### Vulnerability Categories Covered
+- **Reentrancy Attacks**: External call vulnerabilities and state manipulation
+- **Access Control Issues**: Missing or improper permission checks
+- **Arithmetic Vulnerabilities**: Integer overflow/underflow conditions
+- **Denial of Service**: Gas limit and block manipulation attacks
+- **Unchecked External Calls**: Failed call handling and return value validation
+- **Transaction Order Dependencies**: Front-running and MEV vulnerabilities
+- **Timestamp Dependencies**: Block timestamp manipulation risks
+- **And more...** covering the full spectrum of smart contract security issues
+
+### How It Works
+
+The SmartBugs integration follows a sophisticated processing pipeline:
+
+1. **Dataset Processing**: The `populate_knowledge_base.py` script reads `vulnerabilities.json` from the SmartBugs dataset
+2. **Code Extraction**: For each contract, the system loads the corresponding `.sol` file and extracts code snippets around vulnerable lines (5 lines before and after for context)
+3. **Document Generation**: Each vulnerability is saved as a structured text file in `./data/knowledge_base`, containing:
+   - Contract name and metadata
+   - Vulnerability category and severity
+   - Affected line numbers
+   - Code snippet with vulnerable lines highlighted
+   - Security implications and recommended mitigations
+4. **RAG Integration**: The RAG pipeline automatically loads these files, splits them into chunks using `RecursiveCharacterTextSplitter`, and indexes them in the Chroma vector store
+5. **Contextual Analysis**: During contract analysis, the system retrieves relevant vulnerability examples to provide context-aware security insights
+
+### Enhanced Analysis Capabilities
+
+With SmartBugs integration, Web3 Guardian can:
+- **Pattern Recognition**: Identify similar vulnerability patterns from real-world examples
+- **Contextual Recommendations**: Provide specific mitigation strategies based on historical vulnerabilities
+- **Risk Assessment**: Improve accuracy by comparing against known vulnerable code patterns
+- **Learning from History**: Continuously improve detection based on past exploits and vulnerabilities
+
+### Setup Instructions
+
+To enable SmartBugs integration:
+
+```bash
+# Download the SmartBugs curated dataset
+git clone https://github.com/smartbugs/smartbugs-curated.git
+
+# Process the dataset to populate the knowledge base
+cd backend
+python scripts/populate_knowledge_base.py
+
+# Verify the integration
+python scripts/test_smartbugs_integration.py
+```
+
+The knowledge base will be populated with structured vulnerability documents that enhance the RAG pipeline's ability to provide accurate and contextual security analysis.
+
 ## 🔧 Development
 
 ### Project Structure
