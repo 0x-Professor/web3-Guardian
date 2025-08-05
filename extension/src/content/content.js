@@ -13,7 +13,7 @@ console.log('🛡️ Web3 Guardian content script loaded on', window.location.hr
 // Modern popup implementation with improved UX and error handling
 let currentTransaction = null;
 
-// Performance utilities
+// Performance optimization utilities
 const debounce = (func, wait) => {
   let timeout;
   return function executedFunction(...args) {
@@ -26,6 +26,72 @@ const debounce = (func, wait) => {
   };
 };
 
+// Enhanced DOM monitoring with performance optimizations
+const optimizedDOMObserver = (() => {
+  let observer;
+  let isObserving = false;
+  
+  const debouncedAnalysis = debounce(analyzePageChanges, 300);
+  
+  function analyzePageChanges() {
+    // Batch DOM queries for better performance
+    const elements = document.querySelectorAll([
+      'button[data-testid*="confirm"]',
+      'div[data-testid*="transaction"]',
+      '.transaction-detail',
+      '[class*="swap"]',
+      '[class*="approve"]'
+    ].join(','));
+    
+    if (elements.length > 0) {
+      requestIdleCallback(() => {
+        analyzeTransactionElements(elements);
+      });
+    }
+  }
+  
+  return {
+    start() {
+      if (isObserving) return;
+      
+      observer = new MutationObserver((mutations) => {
+        // Filter out irrelevant mutations
+        const relevantMutations = mutations.filter(mutation => 
+          mutation.type === 'childList' && 
+          mutation.addedNodes.length > 0 &&
+          Array.from(mutation.addedNodes).some(node => 
+            node.nodeType === Node.ELEMENT_NODE &&
+            (node.className?.includes?.('transaction') || 
+             node.dataset?.testid?.includes?.('confirm'))
+          )
+        );
+        
+        if (relevantMutations.length > 0) {
+          debouncedAnalysis();
+        }
+      });
+      
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: false,
+        attributeOldValue: false
+      });
+      
+      isObserving = true;
+    },
+    
+    stop() {
+      if (observer) {
+        observer.disconnect();
+        observer = null;
+        isObserving = false;
+      }
+    }
+  };
+})();
+
+// Performance utilities
 const throttle = (func, limit) => {
   let inThrottle;
   return function() {
@@ -2103,7 +2169,7 @@ function setupPeriodicMonitoring() {
   setInterval(async () => {
     try {
       const newAddresses = await extractContractAddressesAdvanced();
-      if (newAddresses.length > 0) {
+if (newAddresses.length > 0) {
         sendMessageToBackground({
           type: 'NEW_CONTRACTS_DETECTED',
           data: {
@@ -2197,140 +2263,88 @@ function setupAccountMonitoring() {
   }, 15000); // Check every 15 seconds
 }
 
-// Enhanced error handling and user feedback
-function showLoadingState(message = 'Analyzing transaction...') {
-  const loadingDiv = document.createElement('div');
-  loadingDiv.id = 'web3-guardian-loading';
-  loadingDiv.innerHTML = `
-    <div class="loading-spinner"></div>
-    <div class="loading-message">${message}</div>
-  `;
-  loadingDiv.style.cssText = `
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 15px 20px;
-    border-radius: 10px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-    z-index: 10000;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    transition: all 0.3s ease;
-  `;
-  
-  document.body.appendChild(loadingDiv);
-  
-  // Auto-remove after 30 seconds as fallback
-  setTimeout(() => {
-    const element = document.getElementById('web3-guardian-loading');
-    if (element) element.remove();
-  }, 30000);
-}
-
-function hideLoadingState() {
-  const loadingDiv = document.getElementById('web3-guardian-loading');
-  if (loadingDiv) {
-    loadingDiv.style.opacity = '0';
-    setTimeout(() => loadingDiv.remove(), 300);
-  }
-}
-
-// Enhanced transaction analysis with better error handling
-const analyzeTransactionWithFeedback = debounce(async (transactionData) => {
-  try {
-    showLoadingState('Analyzing smart contract...');
-    
-    const response = await chrome.runtime.sendMessage({
-      action: 'analyzeTransaction',
-      data: transactionData
+// Enhanced error handling for uncaught errors
+window.addEventListener('error', (event) => {
+  if (event.error && event.error.message && event.error.message.includes('Web3 Guardian')) {
+    logError('Web3 Guardian error caught:', {
+      message: event.error.message,
+      stack: event.error.stack,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno
     });
     
-    hideLoadingState();
-    
-    if (response.error) {
-      showNotification('Analysis failed: ' + response.error, 'error');
-      return;
-    }
-    
-    if (response.risks && response.risks.length > 0) {
-      showRiskWarning(response.risks, response.riskScore);
-    } else {
-      showNotification('Transaction appears safe', 'success');
-    }
-    
-  } catch (error) {
-    hideLoadingState();
-    console.error('Analysis error:', error);
-    showNotification('Failed to analyze transaction. Please try again.', 'error');
+    sendMessageToBackground({
+      type: 'CONTENT_SCRIPT_ERROR',
+      data: {
+        error: event.error.message,
+        stack: event.error.stack,
+        url: window.location.href,
+        timestamp: Date.now()
+      }
+    }).catch(err => logError('Failed to send error report:', err));
   }
-}, 500);
+});
 
-// Enhanced notification system
-function showNotification(message, type = 'info') {
-  const notificationId = 'web3-guardian-notification';
-  let notificationDiv = document.getElementById(notificationId);
-  
-  if (!notificationDiv) {
-    notificationDiv = document.createElement('div');
-    notificationDiv.id = notificationId;
-    notificationDiv.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      padding: 12px 16px;
-      border-radius: 8px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-      z-index: 10000;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      max-width: 300px;
-      transition: opacity 0.3s ease, transform 0.3s ease;
-      transform: translateY(-10px);
-      opacity: 0;
-    `;
+// Enhanced unhandled promise rejection handling
+window.addEventListener('unhandledrejection', (event) => {
+  if (event.reason && event.reason.message && event.reason.message.includes('Web3 Guardian')) {
+    logError('Web3 Guardian promise rejection:', event.reason);
     
-    document.body.appendChild(notificationDiv);
+    sendMessageToBackground({
+      type: 'CONTENT_SCRIPT_REJECTION',
+      data: {
+        error: event.reason.message || 'Unknown promise rejection',
+        url: window.location.href,
+        timestamp: Date.now()
+      }
+    }).catch(err => logError('Failed to send rejection report:', err));
   }
-  
-  notificationDiv.textContent = message;
-  notificationDiv.style.opacity = '1';
-  notificationDiv.style.transform = 'translateY(0)';
-  
-  // Auto-remove after 5 seconds
-  setTimeout(() => {
-    if (notificationDiv) {
-      notificationDiv.style.opacity = '0';
-      setTimeout(() => notificationDiv.remove(), 300);
-    }
-  }, 5000);
-}
+});
 
-// Show risk warning with detailed information
-function showRiskWarning(risks, riskScore) {
-  const riskId = 'web3-guardian-risk-warning';
-  let riskDiv = document.getElementById(riskId);
-  
-  if (!riskDiv) {
-    riskDiv = document.createElement('div');
-    riskDiv.id = riskId;
-    riskDiv.style.cssText = `
-      position: fixed;
-      top: 80px;
-      right: 20px;
-      background: rgba(255, 0, 0, 0.8);
-      color: white;
-      padding: 16px 20px;
-      border-radius: 10px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-      z-index: 10000;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      max-width: 350px;
-      transition: opacity 0.
+// Page visibility change handling
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    logDebug('Page became visible, refreshing state...');
+    
+    // Refresh provider state when page becomes visible
+    if (window.ethereum && isInitialized) {
+      window.ethereum.request({ method: 'eth_accounts' })
+        .then(accounts => {
+          if (JSON.stringify(accounts) !== JSON.stringify(connectedAccounts)) {
+            connectedAccounts = accounts || [];
+            sendMessageToBackground({
+              type: 'ACCOUNTS_REFRESHED',
+              data: {
+                accounts: connectedAccounts,
+                url: window.location.href,
+                timestamp: Date.now()
+              }
+            }).catch(err => logError('Failed to send account refresh:', err));
+          }
+        })
+        .catch(err => logError('Failed to refresh accounts:', err));
+    }
+  }
+});
+
+// Handle page unload
+window.addEventListener('beforeunload', () => {
+  if (isInitialized) {
+    sendMessageToBackground({
+      type: 'PAGE_UNLOADING',
+      data: {
+        url: window.location.href,
+        timestamp: Date.now(),
+        sessionDuration: Date.now() - (window.web3GuardianStartTime || Date.now())
+      }
+    }).catch(() => {}); // Ignore errors on unload
+  }
+});
+
+// Set start time for session tracking
+window.web3GuardianStartTime = Date.now();
+
+// Also try to initialize immediately in case provider is already available
+setTimeout(initialize, 100);
+    
