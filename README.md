@@ -14,9 +14,11 @@ Web3 Guardian is a comprehensive security suite for Web3 that combines a browser
 ### 🛡️ Advanced Security Features
 
 - **Smart Contract Analysis**: Deep inspection of contract bytecode and source code using static analysis
-- **RAG-Powered Vulnerability Detection**: AI-powered vulnerability detection using Google Gemini and LangChain
+- **RAG-Powered Vulnerability Detection**: AI-powered vulnerability detection using Google Gemini and LangChain with SmartBugs dataset integration
+- **SmartBugs Knowledge Base**: Leverages 143 real-world vulnerable contracts with 208 labeled vulnerabilities for enhanced analysis
 - **Dynamic Transaction Simulation**: Test transactions before execution in forked blockchain environments via Tenderly
 - **Real-time Risk Assessment**: Comprehensive risk scoring for contracts and transactions
+- **Vulnerability Pattern Recognition**: Trained on real-world exploits including reentrancy, access control, arithmetic issues, and more
 - **Phishing Protection**: Advanced detection of malicious domains and contract addresses
 - **Permission Monitoring**: Track and manage dApp permissions and access requests
 
