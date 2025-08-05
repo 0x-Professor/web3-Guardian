@@ -8,13 +8,15 @@ import os
 import uuid
 import json
 import asyncio
-from datetime import datetime
+import aiohttp
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 
 # Import internal modules
 from src.utils.config import settings
 from src.utils.logger import setup_logger
+from src.rag.rag_pipeline import get_rag_pipeline
 from src.simulation.tenderly_new import (
     TenderlyClient, 
     TenderlyError, 
@@ -209,7 +211,7 @@ async def perform_static_analysis(contract_address: str, network: str) -> Dict[s
         source_code = contract_details.get("source", {})
         if source_code:
             # Convert source code to string for basic pattern matching
-            source_text = json.dumps(source_code).lower()
+            source_text = json.dumps(source_code).lower();
             
             # Check for selfdestruct
             if 'selfdestruct' in source_text:
