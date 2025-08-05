@@ -132,7 +132,7 @@ analysis_results = {}
 
 # Utility functions
 async def fetch_contract_details(contract_address: str, network: str) -> Dict[str, Any]:
-    """Fetch contract details including source code and metadata.
+    """Fetch contract details including source code and metadata from Tenderly and Etherscan.
     
     Args:
         contract_address: The address of the smart contract
@@ -141,35 +141,38 @@ async def fetch_contract_details(contract_address: str, network: str) -> Dict[st
     Returns:
         Dict containing contract details
     """
-    logger.info(f"Fetching details for contract {contract_address} on {network}")
-    
     try:
-        # Get contract metadata first
-        metadata = await tenderly_client.get_contract_metadata(contract_address, network)
+        # First try to get contract details from Tenderly
+        contract_details = await tenderly_client.get_contract_metadata(contract_address, network)
+        is_verified = bool(contract_details.get("source"))
         
-        # Get source code if available
-        source = None
-        try:
-            source = await tenderly_client.get_contract_source(contract_address, network)
-        except TenderlyError as e:
-            logger.warning(f"Could not fetch contract source: {str(e)}")
+        # If not verified in Tenderly, try Etherscan
+        if not is_verified and hasattr(settings, 'ETHERSCAN_API_KEY') and settings.ETHERSCAN_API_KEY:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    etherscan_url = getattr(settings, 'ETHERSCAN_VERIFY_URL', 'https://api.etherscan.io/api')
+                    async with session.get(
+                        f"{etherscan_url}?module=contract&action=getsourcecode&address={contract_address}&apikey={settings.ETHERSCAN_API_KEY}"
+                    ) as response:
+                        data = await response.json()
+                        if data["status"] == "1" and data["result"][0]["SourceCode"]:
+                            contract_details["source"] = data["result"][0]["SourceCode"]
+                            contract_details["is_verified"] = True
+                            contract_details["compiler_version"] = data["result"][0].get("CompilerVersion", "Unknown")
+                            contract_details["contract_name"] = data["result"][0].get("ContractName", "Unknown")
+                        else:
+                            contract_details["is_verified"] = False
+            except Exception as e:
+                logger.warning(f"Failed to fetch from Etherscan: {str(e)}")
+                contract_details["is_verified"] = False
+        else:
+            contract_details["is_verified"] = is_verified
+            
+        return contract_details
         
-        # Get bytecode
-        bytecode = await tenderly_client.get_contract_bytecode(contract_address, network)
-        
-        return {
-            "metadata": metadata,
-            "source": source,
-            "bytecode": bytecode,
-            "is_verified": source is not None,
-            "timestamp": datetime.utcnow().isoformat()
-        }
     except Exception as e:
         logger.error(f"Failed to fetch contract details: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch contract details: {str(e)}"
-        )
+        return {"is_verified": False, "source": "", "metadata": {}}
 
 
 async def perform_static_analysis(contract_address: str, network: str) -> Dict[str, Any]:
