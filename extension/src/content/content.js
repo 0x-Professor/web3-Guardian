@@ -264,7 +264,7 @@ async function handleTransactionRequest(args, requestId) {
   }
 }
 
-// Handle contract interaction analysis
+// Handle contract interaction analysis with enhanced RAG pipeline
 async function handleContractInteraction(args, requestId) {
   try {
     const contractData = {
@@ -274,19 +274,46 @@ async function handleContractInteraction(args, requestId) {
       data: args.params[0]?.data
     };
     
-    // Analyze contract interaction
+    // Analyze contract interaction using enhanced RAG pipeline
     if (contractData.to && contractData.data) {
-      await sendMessageToBackground({
-        type: 'ANALYZE_CONTRACT_INTERACTION',
+      logInfo('🔍 Analyzing contract interaction with RAG pipeline:', contractData.to);
+      
+      // Use the enhanced contract analysis API
+      const analysisPromise = sendMessageToBackground({
+        type: 'ANALYZE_CONTRACT_ENHANCED',
         data: {
-          ...contractData,
+          contract_address: contractData.to,
+          network: getNetworkNameFromChainId(currentChainId) || 'mainnet',
+          interaction_data: contractData.data,
+          method: contractData.method,
           requestId,
-          url: window.location.href
+          url: window.location.href,
+          timestamp: Date.now()
         }
-      });
+      }, 30000); // Longer timeout for RAG analysis
+      
+      // Don't block the original request, but log results when available
+      analysisPromise
+        .then(analysisResult => {
+          if (analysisResult.success && analysisResult.data) {
+            logInfo('✅ Contract analysis completed:', {
+              address: contractData.to,
+              securityScore: analysisResult.data.security_score,
+              vulnerabilities: analysisResult.data.vulnerabilities?.length || 0,
+              optimizations: analysisResult.data.optimizations?.length || 0
+            });
+            
+            // Show user notification if high-risk issues found
+            if (analysisResult.data.security_score < 6.0 || 
+                (analysisResult.data.vulnerabilities?.length > 0)) {
+              showSecurityWarning(analysisResult.data);
+            }
+          }
+        })
+        .catch(err => logError('Contract analysis failed:', err));
     }
     
-    // Proceed with original request
+    // Proceed with original request immediately
     return await this.request.call(this, args);
     
   } catch (error) {
@@ -296,44 +323,114 @@ async function handleContractInteraction(args, requestId) {
   }
 }
 
-// Handle signing requests
-async function handleSigningRequest(args, requestId) {
-  try {
-    const signingData = {
-      method: args.method,
-      params: args.params,
-      message: args.params[1] || args.params[0]
-    };
-    
-    logInfo('✍️ Signing request intercepted:', signingData.method);
-    
-    // Analyze signing request
-    const analysisResult = await sendMessageToBackground({
-      type: 'ANALYZE_SIGNING_REQUEST',  
-      data: {
-        ...signingData,
-        requestId,
-        url: window.location.href
+// Show security warning for high-risk contracts
+function showSecurityWarning(analysisData) {
+  // Create a non-intrusive warning notification
+  const warningDiv = document.createElement('div');
+  warningDiv.id = 'web3-guardian-warning';
+  warningDiv.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: linear-gradient(135deg, #ff6b6b, #ff8e8e);
+    color: white;
+    padding: 16px 20px;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(255, 107, 107, 0.3);
+    z-index: 10000;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    max-width: 350px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    animation: slideIn 0.3s ease-out;
+  `;
+  
+  const vulnerabilityCount = analysisData.vulnerabilities?.length || 0;
+  const securityScore = analysisData.security_score || 0;
+  
+  warningDiv.innerHTML = `
+    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+      <span style="font-size: 20px; margin-right: 8px;">🛡️</span>
+      <strong>Web3 Guardian Security Alert</strong>
+    </div>
+    <div style="margin-bottom: 8px;">
+      Security Score: <strong>${securityScore.toFixed(1)}/10</strong>
+    </div>
+    ${vulnerabilityCount > 0 ? `
+      <div style="margin-bottom: 8px;">
+        Found <strong>${vulnerabilityCount}</strong> potential ${vulnerabilityCount === 1 ? 'vulnerability' : 'vulnerabilities'}
+      </div>
+    ` : ''}
+    <div style="font-size: 12px; opacity: 0.9;">
+      Review transaction carefully before proceeding
+    </div>
+    <div style="margin-top: 12px; text-align: right;">
+      <button onclick="this.parentElement.parentElement.remove()" 
+              style="background: rgba(255,255,255,0.2); border: none; color: white; 
+                     padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+        Dismiss
+      </button>
+    </div>
+  `;
+  
+  // Add animation styles
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
       }
-    });
-    
-    // Request user approval for signing
-    const userApproved = await requestSigningApproval({
-      ...signingData,
-      ...analysisResult,
-      type: 'signing'
-    });
-    
-    if (!userApproved) {
-      throw new Error('Signing request rejected by Web3 Guardian');
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
     }
-    
-    return await this.request.call(this, args);
-    
-  } catch (error) {
-    logError('❌ Signing request failed:', error);
-    throw error;
+  `;
+  document.head.appendChild(style);
+  
+  // Remove existing warning if present
+  const existingWarning = document.getElementById('web3-guardian-warning');
+  if (existingWarning) {
+    existingWarning.remove();
   }
+  
+  document.body.appendChild(warningDiv);
+  
+  // Auto-remove after 10 seconds
+  setTimeout(() => {
+    if (document.getElementById('web3-guardian-warning')) {
+      warningDiv.style.animation = 'slideIn 0.3s ease-out reverse';
+      setTimeout(() => warningDiv.remove(), 300);
+    }
+  }, 10000);
+}
+
+// Get network name from chain ID for API calls
+function getNetworkNameFromChainId(chainId) {
+  if (!chainId) return 'mainnet';
+  
+  const chainIdNum = typeof chainId === 'string' ? parseInt(chainId, 16) : chainId;
+  const networkMap = {
+    1: 'mainnet',
+    5: 'goerli', 
+    11155111: 'sepolia',
+    137: 'polygon',
+    80001: 'mumbai',
+    56: 'bsc',
+    97: 'bsc-testnet',
+    42161: 'arbitrum',
+    421613: 'arbitrum-goerli',
+    10: 'optimism',
+    420: 'optimism-goerli',
+    43114: 'avalanche',
+    43113: 'fuji',
+    250: 'fantom',
+    4002: 'fantom-testnet'
+  };
+  
+  return networkMap[chainIdNum] || 'mainnet';
 }
 
 // Advanced dApp analysis with mutation observers and dynamic content detection
