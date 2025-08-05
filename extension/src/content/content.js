@@ -10,6 +10,35 @@ let currentChainId = null;
 
 console.log('🛡️ Web3 Guardian content script loaded on', window.location.href);
 
+// Modern popup implementation with improved UX and error handling
+let currentTransaction = null;
+
+// Performance utilities
+const debounce = (func, wait) => {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+};
+
+const throttle = (func, limit) => {
+  let inThrottle;
+  return function() {
+    const args = arguments;
+    const context = this;
+    if (!inThrottle) {
+      func.apply(context, args);
+      inThrottle = true;
+      setTimeout(() => inThrottle = false, limit);
+    }
+  }
+};
+
 // Comprehensive Web3 provider detection and interception
 function detectAndInterceptWeb3Provider() {
   // Check for existing provider
