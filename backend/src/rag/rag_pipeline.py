@@ -580,6 +580,98 @@ class SmartContractRAGPipeline:
         expiry_time = cached_item["timestamp"] + cached_item["ttl"]
         return datetime.utcnow() < expiry_time
 
+    async def analyze_contract_enhanced(self, contract_address: str, contract_code: str, network: str = "mainnet") -> Dict[str, Any]:
+        """
+        Enhanced contract analysis using RAG pipeline with structured JSON output
+        """
+        try:
+            # Retrieve relevant vulnerability patterns
+            retrieved_docs = self.vector_store.similarity_search(
+                contract_code,
+                k=getattr(settings, 'MAX_RETRIEVAL_DOCS', 5)
+            )
+            retrieved_texts = "\n".join([doc.page_content for doc in retrieved_docs])
+
+            # Enhanced prompt template for structured analysis
+            enhanced_prompt_template = """You are an expert smart contract auditor. Given the following smart contract code and relevant vulnerability patterns, identify potential vulnerabilities, gas inefficiencies, and best practice violations. Provide a detailed report with specific issues, their severity, and recommendations for mitigation.
+
+Contract Code:
+{context}
+
+Relevant Vulnerability Patterns:
+{retrieved_docs}
+
+Please provide a structured JSON response with the following fields:
+- vulnerabilities: List of objects with title, description, severity, location, recommendation
+- optimizations: List of objects with title, description, location
+- security_score: Float from 0 to 10
+"""
+
+            # Create enhanced prompt
+            enhanced_prompt = PromptTemplate(
+                template=enhanced_prompt_template,
+                input_variables=["context", "retrieved_docs"]
+            )
+
+            # Create temporary chain for this analysis
+            enhanced_chain = RetrievalQA.from_chain_type(
+                llm=self.llm,
+                chain_type="stuff",
+                retriever=self.vector_store.as_retriever(
+                    search_type="similarity",
+                    search_kwargs={"k": getattr(settings, 'MAX_RETRIEVAL_DOCS', 5)}
+                ),
+                return_source_documents=True,
+                chain_type_kwargs={"prompt": enhanced_prompt}
+            )
+
+            # Run enhanced RAG analysis
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: enhanced_chain({"query": contract_code, "retrieved_docs": retrieved_texts})
+            )
+
+            # Parse result
+            try:
+                analysis_result = json.loads(result['result'])
+            except json.JSONDecodeError:
+                # Fallback if JSON parsing fails
+                analysis_result = {
+                    "vulnerabilities": [],
+                    "optimizations": [],
+                    "security_score": 5.0,
+                    "raw_analysis": result['result']
+                }
+
+            # Add source documents
+            analysis_result['source_documents'] = [
+                {"content": doc.page_content, "metadata": doc.metadata}
+                for doc in result.get('source_documents', [])
+            ]
+
+            # Add analysis metadata
+            analysis_result.update({
+                "contract_address": contract_address,
+                "network": network,
+                "analysis_timestamp": datetime.utcnow().isoformat(),
+                "analysis_type": "enhanced_rag"
+            })
+
+            return analysis_result
+
+        except Exception as e:
+            logger.error(f"Enhanced RAG analysis failed: {str(e)}")
+            return {
+                "vulnerabilities": [],
+                "optimizations": [],
+                "security_score": 0.0,
+                "error": str(e),
+                "contract_address": contract_address,
+                "network": network,
+                "analysis_timestamp": datetime.utcnow().isoformat(),
+                "analysis_type": "enhanced_rag"
+            }
+
 # Global RAG pipeline instance
 rag_pipeline = None
 
